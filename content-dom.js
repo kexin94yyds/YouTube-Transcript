@@ -15,6 +15,12 @@ console.log('[YouTube转录 DOM] 插件加载开始...');
             pointer-events: none !important;
             transition: none !important;
           }
+          /* 一旦我们加上 transcript-hidden 类，彻底不占位 */
+          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"].transcript-hidden {
+            display: none !important;
+            width: 0 !important;
+            max-width: 0 !important;
+          }
         `;
         (document.documentElement || document.head || document.body)?.appendChild(style);
     } catch (e) {}
@@ -85,20 +91,23 @@ async function fetchTranscriptFromDOM() {
         
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
-            // 点击前确保面板处于不可见状态，避免闪现
+            // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
             try {
                 const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
                 if (nativePanelPre) {
                     nativePanelPre.style.opacity = '0';
                     nativePanelPre.style.pointerEvents = 'none';
+                    nativePanelPre.style.transform = '';
+                    nativePanelPre.style.position = '';
+                    nativePanelPre.style.right = '';
+                    nativePanelPre.style.top = '';
+                    nativePanelPre.style.overflow = '';
                 }
             } catch (_) {}
             transcriptButton.click();
             
-            // 等待transcript面板出现
-            await new Promise(resolve => setTimeout(resolve, 600));
-            
-            // 查找transcript面板
+            // 等待transcript面板出现（短暂固定等待，避免过早隐藏导致不渲染）
+            await new Promise(resolve => setTimeout(resolve, 320));
             const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
             
             if (transcriptPanel) {
@@ -107,7 +116,12 @@ async function fetchTranscriptFromDOM() {
                 // 提取章节信息
                 await extractChapters(transcriptPanel);
                 
-                const segments = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
+                // 等待字幕片段渲染（快速重试，但总时长很短）
+                let segments = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
+                for (let i = 0; i < 15 && (!segments || segments.length === 0); i++) {
+                    await new Promise(r => setTimeout(r, 40));
+                    segments = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
+                }
                 console.log('[YouTube转录 DOM] 找到字幕片段:', segments.length);
                 
                 transcriptData = [];
@@ -141,10 +155,8 @@ async function fetchTranscriptFromDOM() {
                         }
                     }, 100);
                     
-                    // 渲染完成后保持原生面板隐藏（不打断加载）
-                    setTimeout(() => {
-                        closeNativeTranscript(transcriptPanel);
-                    }, 0);
+                    // 立即关闭原生面板，避免占位
+                    closeNativeTranscript(transcriptPanel);
                     
                     return;
                 }
@@ -227,10 +239,17 @@ function closeNativeTranscript(panel) {
         
         // 直接隐藏面板
         if (panel) {
-            // 不使用 display:none，保持DOM在场，避免后续加载失效
+            // 优先尝试点击关闭按钮，确保YouTube恢复布局
+            try {
+                const btn = panel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
+                if (btn) btn.click();
+            } catch (_) {}
+
+            // 然后彻底隐藏，不再占位
             panel.classList.add('transcript-hidden');
             panel.style.opacity = '0';
             panel.style.pointerEvents = 'none';
+            panel.style.display = 'none';
             try { panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
             console.log('[YouTube转录 DOM] 原生面板已隐藏');
         }
@@ -255,9 +274,14 @@ function keepNativeTranscriptHidden() {
             const isVisible = nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
             if (isVisible && !nativePanel.classList.contains('transcript-hidden')) {
                 console.log('[YouTube转录 DOM] 检测到原生面板打开，强制隐藏');
+                try {
+                    const btn = nativePanel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
+                    if (btn) btn.click();
+                } catch (_) {}
                 nativePanel.classList.add('transcript-hidden');
                 nativePanel.style.opacity = '0';
                 nativePanel.style.pointerEvents = 'none';
+                nativePanel.style.display = 'none';
                 try { nativePanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
             }
         }
@@ -324,6 +348,26 @@ async function fetchFromPlayerResponse() {
     } else {
         showNoTranscriptMessage();
     }
+}
+
+// 快速等待原生Transcript面板出现
+async function waitForTranscriptPanel(maxTries = 20, intervalMs = 60) {
+    for (let i = 0; i < maxTries; i++) {
+        const panel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+        if (panel) return panel;
+        await new Promise(r => setTimeout(r, intervalMs));
+    }
+    return document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+}
+
+// 等待字幕片段渲染出来（避免太早关闭）
+async function waitForTranscriptSegments(panel, maxTries = 80, intervalMs = 50) {
+    for (let i = 0; i < maxTries; i++) {
+        const segs = panel?.querySelectorAll('ytd-transcript-segment-renderer');
+        if (segs && segs.length > 0) return segs;
+        await new Promise(r => setTimeout(r, intervalMs));
+    }
+    return panel?.querySelectorAll('ytd-transcript-segment-renderer') || [];
 }
 
 // 从 ytInitialPlayerResponse 提取章节（优先方式）
