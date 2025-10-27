@@ -86,9 +86,14 @@ async function fetchTranscriptFromDOM() {
             console.warn('[YouTube转录 DOM] 获取playerResponse失败，稍后重试章节提取');
         }
         
-        // 方法1: 尝试点击transcript按钮
-        const transcriptButton = await findTranscriptButton();
+        // 方法1: 尝试直接找到 transcript 按钮
+        let transcriptButton = await findTranscriptButton();
         
+        // 若未找到，则尝试自动打开“更多操作 ...”菜单并在弹窗中寻找
+        if (!transcriptButton) {
+            transcriptButton = await openMenuAndFindTranscript();
+        }
+
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
             // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
@@ -316,6 +321,42 @@ async function findTranscriptButton() {
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     
+    return null;
+}
+
+// 打开“更多操作 …”菜单并查找“显示文字记录/Transcript”菜单项
+async function openMenuAndFindTranscript() {
+    // 1) 尝试定位 watch 页主操作区的“更多操作”按钮
+    const selectors = [
+        'ytd-watch-metadata #actions button[aria-label*="more" i]',
+        'ytd-watch-metadata #actions tp-yt-paper-icon-button[aria-label*="more" i]',
+        'ytd-watch-metadata #actions button[aria-label*="更多" i]',
+        '#actions button[aria-label*="more" i]',
+        '#actions tp-yt-paper-icon-button[aria-label*="more" i]',
+        'button[aria-label*="more actions" i]',
+        'button[aria-label*="更多操作" i]',
+    ];
+    let moreBtn = null;
+    for (const sel of selectors) {
+        moreBtn = document.querySelector(sel);
+        if (moreBtn) break;
+    }
+    // 找不到就不再尝试
+    if (!moreBtn) return null;
+
+    // 2) 打开菜单
+    moreBtn.click();
+    // 等待弹窗出现
+    const menu = await waitForElement('ytd-menu-popup-renderer:not([hidden]) tp-yt-paper-listbox, ytd-menu-popup-renderer tp-yt-paper-listbox', 800);
+    if (!menu) return null;
+    // 3) 在弹窗中查找包含 transcript/字幕/文字 的菜单项
+    const items = menu.querySelectorAll('ytd-menu-service-item-renderer');
+    for (const it of items) {
+        const t = (it.textContent || '').toLowerCase();
+        if (t.includes('transcript') || t.includes('文字') || t.includes('字幕')) {
+            return it;
+        }
+    }
     return null;
 }
 
