@@ -106,9 +106,8 @@ async function fetchTranscriptFromDOM() {
             } catch (_) {}
             transcriptButton.click();
             
-            // 等待transcript面板出现（短暂固定等待，避免过早隐藏导致不渲染）
-            await new Promise(resolve => setTimeout(resolve, 320));
-            const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+            // 尽快等待面板出现：先走超快轮询，失败再走稍慢轮询（更稳）
+            const transcriptPanel = await waitForTranscriptPanelFast();
             
             if (transcriptPanel) {
                 console.log('[YouTube转录 DOM] 找到transcript面板');
@@ -116,12 +115,8 @@ async function fetchTranscriptFromDOM() {
                 // 提取章节信息
                 await extractChapters(transcriptPanel);
                 
-                // 等待字幕片段渲染（快速重试，但总时长很短）
-                let segments = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
-                for (let i = 0; i < 15 && (!segments || segments.length === 0); i++) {
-                    await new Promise(r => setTimeout(r, 40));
-                    segments = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
-                }
+                // 等到字幕片段（快速优先，必要时退回稳妥等待）
+                const segments = await waitForTranscriptSegmentsFast(transcriptPanel);
                 console.log('[YouTube转录 DOM] 找到字幕片段:', segments.length);
                 
                 transcriptData = [];
@@ -368,6 +363,21 @@ async function waitForTranscriptSegments(panel, maxTries = 80, intervalMs = 50) 
         await new Promise(r => setTimeout(r, intervalMs));
     }
     return panel?.querySelectorAll('ytd-transcript-segment-renderer') || [];
+}
+
+// 快速优先：更短间隔先试几次，失败再走稳妥方案
+async function waitForTranscriptPanelFast() {
+    const fast = await waitForTranscriptPanel(15, 20); // 最快 ~300ms
+    if (fast) return fast;
+    return await waitForTranscriptPanel(60, 35);        // 备份 ~2.1s 上限
+}
+
+async function waitForTranscriptSegmentsFast(panel) {
+    let segs = panel?.querySelectorAll('ytd-transcript-segment-renderer');
+    if (segs && segs.length) return segs;
+    segs = await waitForTranscriptSegments(panel, 12, 25); // 最快 ~300ms
+    if (segs && segs.length) return segs;
+    return await waitForTranscriptSegments(panel, 100, 50); // 备份更稳
 }
 
 // 从 ytInitialPlayerResponse 提取章节（优先方式）
