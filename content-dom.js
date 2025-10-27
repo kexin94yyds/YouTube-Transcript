@@ -106,8 +106,8 @@ async function fetchTranscriptFromDOM() {
             } catch (_) {}
             transcriptButton.click();
             
-            // 尽快等待面板出现：先走超快轮询，失败再走稍慢轮询（更稳）
-            const transcriptPanel = await waitForTranscriptPanelFast();
+            // 尽快等待面板出现：优先用DOM变化捕捉，其次走快速轮询
+            const transcriptPanel = await waitForTranscriptPanelUltra();
             
             if (transcriptPanel) {
                 console.log('[YouTube转录 DOM] 找到transcript面板');
@@ -115,8 +115,8 @@ async function fetchTranscriptFromDOM() {
                 // 提取章节信息
                 await extractChapters(transcriptPanel);
                 
-                // 等到字幕片段（快速优先，必要时退回稳妥等待）
-                const segments = await waitForTranscriptSegmentsFast(transcriptPanel);
+                // 等到字幕片段：优先用DOM变化捕捉并等待计数短暂稳定
+                const segments = await waitForTranscriptSegmentsUltra(transcriptPanel);
                 console.log('[YouTube转录 DOM] 找到字幕片段:', segments.length);
                 
                 transcriptData = [];
@@ -378,6 +378,53 @@ async function waitForTranscriptSegmentsFast(panel) {
     segs = await waitForTranscriptSegments(panel, 12, 25); // 最快 ~300ms
     if (segs && segs.length) return segs;
     return await waitForTranscriptSegments(panel, 100, 50); // 备份更稳
+}
+
+// Ultra 级：MutationObserver 捕捉出现，最低延迟；超时则回退
+function waitForElement(selector, timeoutMs = 600) {
+    return new Promise((resolve) => {
+        const existing = document.querySelector(selector);
+        if (existing) { resolve(existing); return; }
+        const obs = new MutationObserver(() => {
+            const el = document.querySelector(selector);
+            if (el) { obs.disconnect(); resolve(el); }
+        });
+        obs.observe(document.documentElement || document.body, { childList: true, subtree: true });
+        setTimeout(() => { obs.disconnect(); resolve(document.querySelector(selector)); }, timeoutMs);
+    });
+}
+
+async function waitForTranscriptPanelUltra() {
+    const viaObserver = await waitForElement('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]', 600);
+    if (viaObserver) return viaObserver;
+    return await waitForTranscriptPanelFast();
+}
+
+function waitForTranscriptSegmentsUltra(panel) {
+    return new Promise((resolve) => {
+        const getSegs = () => panel?.querySelectorAll('ytd-transcript-segment-renderer');
+        let lastCount = -1;
+        let stableTimer = null;
+        const done = (segs) => { try { obs.disconnect(); } catch(_){}; if (stableTimer) clearTimeout(stableTimer); resolve(segs || []); };
+        const check = () => {
+            const segs = getSegs();
+            const count = segs ? segs.length : 0;
+            if (count > 0) {
+                if (count === lastCount) {
+                    if (!stableTimer) stableTimer = setTimeout(() => done(segs), 120);
+                } else {
+                    lastCount = count;
+                    if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
+                }
+            }
+        };
+        const obs = new MutationObserver(check);
+        try { obs.observe(panel, { childList: true, subtree: true }); } catch(_) { /* ignore */ }
+        // 初始检查
+        check();
+        // 最长等待 1500ms 后返回当前已加载的片段
+        setTimeout(() => done(getSegs()), 1500);
+    });
 }
 
 // 从 ytInitialPlayerResponse 提取章节（优先方式）
