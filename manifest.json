@@ -25,7 +25,7 @@
       ],
       "js": ["content-dom.js"],
       "css": ["sidebar.css"],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "all_frames": false
     }
   ],

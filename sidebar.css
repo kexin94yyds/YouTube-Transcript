@@ -9,13 +9,15 @@
     z-index: 2147483647; /* 最高层级，确保全屏时也显示 */
     display: flex;
     flex-direction: column;
-    box-shadow: -2px 0 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
     transition: transform 0.3s ease;
     font-family: "Roboto","Arial",sans-serif;
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 .transcript-sidebar.collapsed {
-    transform: translateX(100%);
+    display: none;
 }
 
 .transcript-header {
@@ -25,6 +27,8 @@
     border-bottom: 1px solid #e5e5e5;
     background-color: #ffffff;
     gap: 12px;
+    cursor: move; /* 用作拖拽手柄 */
+    user-select: none;
 }
 
 .header-top {
@@ -207,6 +211,27 @@
     background: #ffffff;
 }
 
+/* 可调整大小的手柄 */
+.resize-handle-left {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+.resize-handle-br {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 12px;
+    height: 12px;
+    cursor: nwse-resize;
+    z-index: 2;
+}
+
 .transcript-content::-webkit-scrollbar-thumb {
     background: #d0d0d0;
     border-radius: 5px;
@@ -229,8 +254,18 @@ html:-moz-full-screen .transcript-sidebar {
     position: fixed !important;
 }
 
-/* 隐藏YouTube原生转录面板 - 由JS控制 */
+/* 隐藏YouTube原生转录面板（不移除布局，避免加载失效） */
+/* 始终让原生面板不可见，但保持在DOM中以触发加载 */
+ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"],
+ytd-transcript-search-panel-renderer,
+ytd-transcript-renderer {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: none !important;
+}
+
+/* 兜底：如果JS添加了类，也保持同样的隐藏效果 */
 ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"].transcript-hidden {
-    display: none !important;
-    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }

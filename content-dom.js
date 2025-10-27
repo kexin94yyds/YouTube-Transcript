@@ -1,12 +1,34 @@
 // YouTube转录侧边栏 - 使用DOM版本（无需网络请求）
 console.log('[YouTube转录 DOM] 插件加载开始...');
 
+// 提前隐藏原生转录面板（不使用 display:none，避免阻断加载）
+(function ensureNativeTranscriptHiddenEarly() {
+    try {
+        if (document.getElementById('ext-hide-native-transcript-style')) return;
+        const style = document.createElement('style');
+        style.id = 'ext-hide-native-transcript-style';
+        style.textContent = `
+          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"],
+          ytd-transcript-search-panel-renderer,
+          ytd-transcript-renderer {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: none !important;
+          }
+        `;
+        (document.documentElement || document.head || document.body)?.appendChild(style);
+    } catch (e) {}
+})();
+
 let transcriptData = [];
 let chapters = [];
 let currentActiveIndex = -1;
 let timeTrackingInterval = null;
 let videoElement = null;
 let searchQuery = '';
+// 用户手动滚动后的自动跟随冷却时间（毫秒）
+const AUTOSCROLL_COOLDOWN_MS = 2000;
+let blockAutoScrollUntil = 0; // 时间戳：在此时间前不自动滚动
 
 // 初始化
 function init() {
@@ -63,10 +85,18 @@ async function fetchTranscriptFromDOM() {
         
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
+            // 点击前确保面板处于不可见状态，避免闪现
+            try {
+                const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+                if (nativePanelPre) {
+                    nativePanelPre.style.opacity = '0';
+                    nativePanelPre.style.pointerEvents = 'none';
+                }
+            } catch (_) {}
             transcriptButton.click();
             
             // 等待transcript面板出现
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 600));
             
             // 查找transcript面板
             const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
@@ -111,10 +141,10 @@ async function fetchTranscriptFromDOM() {
                         }
                     }, 100);
                     
-                    // 渲染完成后再关闭原生面板
+                    // 渲染完成后保持原生面板隐藏（不打断加载）
                     setTimeout(() => {
                         closeNativeTranscript(transcriptPanel);
-                    }, 500);
+                    }, 0);
                     
                     return;
                 }
@@ -197,9 +227,11 @@ function closeNativeTranscript(panel) {
         
         // 直接隐藏面板
         if (panel) {
+            // 不使用 display:none，保持DOM在场，避免后续加载失效
             panel.classList.add('transcript-hidden');
-            panel.style.display = 'none';
-            panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+            panel.style.opacity = '0';
+            panel.style.pointerEvents = 'none';
+            try { panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
             console.log('[YouTube转录 DOM] 原生面板已隐藏');
         }
         
@@ -224,8 +256,9 @@ function keepNativeTranscriptHidden() {
             if (isVisible && !nativePanel.classList.contains('transcript-hidden')) {
                 console.log('[YouTube转录 DOM] 检测到原生面板打开，强制隐藏');
                 nativePanel.classList.add('transcript-hidden');
-                nativePanel.style.display = 'none';
-                nativePanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+                nativePanel.style.opacity = '0';
+                nativePanel.style.pointerEvents = 'none';
+                try { nativePanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
             }
         }
     });
@@ -404,6 +437,7 @@ function createSidebar() {
             <h3>Transcript</h3>
             <div class="header-controls">
                 <button id="copy-transcript" class="control-btn" title="Copy transcript">📋</button>
+                <button id="copy-url" class="control-btn" title="Copy URL">🔗</button>
                 <button id="toggle-sidebar" class="toggle-btn" title="Close">×</button>
             </div>
         </div>
@@ -417,6 +451,14 @@ function createSidebar() {
     sidebar.appendChild(header);
     sidebar.appendChild(content);
     document.body.appendChild(sidebar);
+
+    // 创建尺寸手柄（左侧和右下角）
+    const leftHandle = document.createElement('div');
+    leftHandle.className = 'resize-handle-left';
+    sidebar.appendChild(leftHandle);
+    const brHandle = document.createElement('div');
+    brHandle.className = 'resize-handle-br';
+    sidebar.appendChild(brHandle);
     
     // 绑定事件
     const toggleBtn = document.getElementById('toggle-sidebar');
@@ -425,15 +467,195 @@ function createSidebar() {
     }
     const copyBtn = document.getElementById('copy-transcript');
     if (copyBtn) {
-        copyBtn.addEventListener('click', () => {
-            copyTranscript();
-        });
+        copyBtn.addEventListener('click', () => copyTranscript());
+    }
+    const copyUrlBtn = document.getElementById('copy-url');
+    if (copyUrlBtn) {
+        copyUrlBtn.addEventListener('click', () => copyPageUrl());
     }
     
     const searchBox = document.getElementById('search-box');
     if (searchBox) {
         searchBox.addEventListener('input', handleSearch);
     }
+    // 启用拖拽和缩放，并恢复上次位置
+    enableSidebarDrag(sidebar, header);
+    enableSidebarResize(sidebar, leftHandle, brHandle);
+    applySavedSidebarState(sidebar);
+
+    // 在用户与滚动区域交互时，短暂禁用自动跟随
+    const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
+    content.addEventListener('wheel', markUserScroll, { passive: true });
+    content.addEventListener('touchstart', markUserScroll, { passive: true });
+    content.addEventListener('pointerdown', markUserScroll, { passive: true });
+    content.addEventListener('scroll', markUserScroll, { passive: true });
+    content.dataset.scrollHandlers = '1';
+
+    // 双击标题，停靠到右侧并恢复默认尺寸
+    header.addEventListener('dblclick', () => {
+        dockSidebarRight(sidebar);
+    });
+}
+
+function clamp(val, min, max) { return Math.min(Math.max(val, min), max); }
+
+function saveSidebarState(state) {
+    try {
+        localStorage.setItem('transcriptSidebarState', JSON.stringify(state));
+    } catch (_) {}
+}
+
+function getSavedSidebarState() {
+    try {
+        const s = localStorage.getItem('transcriptSidebarState');
+        return s ? JSON.parse(s) : null;
+    } catch (_) { return null; }
+}
+
+function applySavedSidebarState(sidebar) {
+    const s = getSavedSidebarState();
+    if (!s) return;
+    if (s.mode === 'free') {
+        sidebar.style.right = 'auto';
+        sidebar.style.left = (s.left || 0) + 'px';
+        sidebar.style.top = (s.top || 0) + 'px';
+        const maxW = Math.min(900, window.innerWidth - 20);
+        const maxH = window.innerHeight - 20;
+        if (s.width) sidebar.style.width = Math.min(s.width, maxW) + 'px';
+        if (s.height) sidebar.style.height = Math.min(s.height, maxH) + 'px';
+    } else if (s.mode === 'dock-right') {
+        dockSidebarRight(sidebar, s.width);
+    }
+}
+
+function dockSidebarRight(sidebar, width = 400) {
+    sidebar.style.left = '';
+    sidebar.style.top = '';
+    sidebar.style.right = '0px';
+    const w = Math.min(width, Math.min(600, window.innerWidth - 20));
+    sidebar.style.width = w + 'px';
+    sidebar.style.height = '100vh';
+    saveSidebarState({ mode: 'dock-right', width: w });
+}
+
+function enableSidebarDrag(sidebar, handle) {
+    let dragging = false;
+    let startX = 0, startY = 0;
+    let origLeft = 0, origTop = 0;
+
+    const onMouseMove = (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const newLeft = clamp(origLeft + dx, 0, window.innerWidth - sidebar.offsetWidth - 10);
+        const newTop = clamp(origTop + dy, 0, window.innerHeight - 80); // 留出上方空间
+        sidebar.style.left = newLeft + 'px';
+        sidebar.style.top = newTop + 'px';
+    };
+
+    const onMouseUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        saveSidebarState({
+            mode: 'free',
+            left: parseInt(sidebar.style.left || '0'),
+            top: parseInt(sidebar.style.top || '0'),
+            width: parseInt(sidebar.style.width || '400'),
+            height: parseInt(sidebar.style.height || (window.innerHeight)),
+        });
+        handle.style.cursor = 'move';
+    };
+
+    handle.addEventListener('mousedown', (e) => {
+        // 避免按钮触发拖拽
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        dragging = true;
+        const rect = sidebar.getBoundingClientRect();
+        // 切换为自由模式
+        sidebar.style.right = 'auto';
+        sidebar.style.left = rect.left + 'px';
+        sidebar.style.top = rect.top + 'px';
+        sidebar.style.height = rect.height + 'px';
+        startX = e.clientX; startY = e.clientY;
+        origLeft = rect.left; origTop = rect.top;
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        handle.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+}
+
+function enableSidebarResize(sidebar, leftHandle, brHandle) {
+    const minW = 280, minH = 240;
+
+    // 左侧宽度拖拽
+    leftHandle.addEventListener('mousedown', (e) => {
+        const rect = sidebar.getBoundingClientRect();
+        const startX = e.clientX;
+        const startLeft = rect.left;
+        const startWidth = rect.width;
+        sidebar.style.right = 'auto';
+        const onMove = (ev) => {
+            const dx = ev.clientX - startX;
+            let newLeft = startLeft + dx;
+            let newWidth = startWidth - dx;
+            if (newWidth < minW) { newWidth = minW; newLeft = startLeft + (startWidth - minW); }
+            const maxW = Math.min(900, window.innerWidth - 20);
+            if (newWidth > maxW) { newWidth = maxW; newLeft = startLeft + (startWidth - maxW); }
+            newLeft = clamp(newLeft, 0, window.innerWidth - newWidth - 10);
+            sidebar.style.left = newLeft + 'px';
+            sidebar.style.width = newWidth + 'px';
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            const rect2 = sidebar.getBoundingClientRect();
+            saveSidebarState({
+                mode: 'free', left: rect2.left, top: rect2.top,
+                width: rect2.width, height: rect2.height
+            });
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    // 右下角宽高拖拽
+    brHandle.addEventListener('mousedown', (e) => {
+        const rect = sidebar.getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const startW = rect.width, startH = rect.height;
+        const onMove = (ev) => {
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
+            const maxW = Math.min(900, window.innerWidth - 20);
+            const maxH = window.innerHeight - 20;
+            let w = clamp(startW + dx, minW, maxW);
+            let h = clamp(startH + dy, minH, maxH);
+            sidebar.style.width = w + 'px';
+            sidebar.style.height = h + 'px';
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            const rect2 = sidebar.getBoundingClientRect();
+            // 进入自由模式以保存大小
+            sidebar.style.right = 'auto';
+            sidebar.style.left = rect2.left + 'px';
+            sidebar.style.top = rect2.top + 'px';
+            saveSidebarState({
+                mode: 'free', left: rect2.left, top: rect2.top,
+                width: rect2.width, height: rect2.height
+            });
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        e.preventDefault();
+        e.stopPropagation();
+    });
 }
 
 // 一键复制整个字幕（章节+时间戳+文本）
@@ -470,6 +692,22 @@ async function copyTranscript() {
         }
     } catch (err) {
         console.error('[YouTube转录 DOM] 复制失败:', err);
+    }
+}
+
+// 複制當前頁面的網址
+async function copyPageUrl() {
+    try {
+        const url = window.location.href;
+        await writeToClipboard(url);
+        const btn = document.getElementById('copy-url');
+        if (btn) {
+            const old = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(() => btn.textContent = old, 1000);
+        }
+    } catch (err) {
+        console.error('[YouTube轉錄 DOM] 複制頁面網址失敗:', err);
     }
 }
 
@@ -644,7 +882,19 @@ function highlightTranscript(index) {
     
     if (targetItem) {
         targetItem.classList.add('active');
-        targetItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 仅在未处于用户滚动冷却期且目标不在可视区域内时，自动滚动到视图
+        const container = document.getElementById('transcript-content');
+        if (container) {
+            const now = Date.now();
+            if (now >= blockAutoScrollUntil) {
+                const cRect = container.getBoundingClientRect();
+                const iRect = targetItem.getBoundingClientRect();
+                const fullyVisible = iRect.top >= cRect.top + 8 && iRect.bottom <= cRect.bottom - 8;
+                if (!fullyVisible) {
+                    targetItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        }
     }
     
     currentActiveIndex = index;
@@ -656,14 +906,54 @@ function handleSearch(event) {
     renderTranscript(searchQuery);
 }
 
+function hideSidebar() {
+    const sidebar = document.getElementById('transcript-sidebar');
+    if (!sidebar) return;
+    // 结束任何可能未完成的拖拽/缩放，避免状态卡住
+    try {
+        document.dispatchEvent(new MouseEvent('mouseup'));
+        document.dispatchEvent(new PointerEvent('pointerup'));
+        // 兼容触摸
+        const touch = new Touch({ identifier: 1, target: document.body, clientX: 0, clientY: 0 });
+        document.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch], bubbles: true }));
+    } catch (_) {}
+    // 直接移除节点，避免隐藏后残留状态导致交互异常
+    try { sidebar.remove(); } catch(_) { sidebar.style.display = 'none'; }
+}
+
+function showSidebar() {
+    const sidebar = document.getElementById('transcript-sidebar');
+    if (!sidebar) return;
+    sidebar.classList.remove('collapsed');
+    sidebar.style.display = 'block';
+    sidebar.style.pointerEvents = 'auto';
+    applySavedSidebarState(sidebar);
+    const headerEl = document.querySelector('#transcript-sidebar .transcript-header');
+    if (headerEl) headerEl.style.cursor = 'move';
+    // 确保滚动容器处于可滚动状态
+    const content = document.getElementById('transcript-content');
+    if (content) {
+        content.style.overflowY = 'auto';
+        content.style.pointerEvents = 'auto';
+        // 再次绑定一次（幂等）
+        if (!content.dataset.scrollHandlers) {
+            const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
+            content.addEventListener('wheel', markUserScroll, { passive: true });
+            content.addEventListener('touchstart', markUserScroll, { passive: true });
+            content.addEventListener('pointerdown', markUserScroll, { passive: true });
+            content.addEventListener('scroll', markUserScroll, { passive: true });
+            content.dataset.scrollHandlers = '1';
+        }
+    }
+    // 立即同步一次高亮和滚动
+    blockAutoScrollUntil = 0;
+    setTimeout(updateCurrentHighlight, 50);
+}
+
 function toggleSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
-    
-    if (sidebar.style.transform === 'translateX(100%)') {
-        sidebar.style.transform = 'translateX(0)';
-    } else {
-        sidebar.style.transform = 'translateX(100%)';
-    }
+    if (!sidebar) return;
+    hideSidebar();
 }
 
 // 初始化
@@ -696,21 +986,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         if (sidebar) {
             // 切换显示/隐藏
-            const isVisible = sidebar.style.transform !== 'translateX(100%)';
-            
+            const isVisible = sidebar.style.display !== 'none';
             if (isVisible) {
-                // 隐藏
-                sidebar.style.transform = 'translateX(100%)';
-                const btn = document.getElementById('toggle-sidebar');
-                if (btn) btn.textContent = '展开';
+                hideSidebar();
                 console.log('[YouTube转录 DOM] 侧边栏已隐藏');
                 sendResponse({ visible: false });
             } else {
-                // 显示
-                sidebar.style.transform = 'translateX(0)';
-                const btn = document.getElementById('toggle-sidebar');
-                if (btn) btn.textContent = '收起';
-                console.log('[YouTube转录 DOM] 侧边栏已显示');
+                // 为保险起见，移除并重新初始化
+                hideSidebar();
+                init();
+                console.log('[YouTube转录 DOM] 侧边栏已重建并显示');
                 sendResponse({ visible: true });
             }
         } else {
@@ -721,5 +1006,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         
         return true; // 异步响应
+    }
+});
+
+// 适配窗口变化：确保侧边栏在屏幕内并按窗口收缩
+window.addEventListener('resize', () => {
+    const sidebar = document.getElementById('transcript-sidebar');
+    if (!sidebar || sidebar.style.display === 'none') return;
+    const rect = sidebar.getBoundingClientRect();
+    const maxLeft = Math.max(0, window.innerWidth - rect.width - 10);
+    const maxTop = Math.max(0, window.innerHeight - 80);
+    if (sidebar.style.right !== '0px') {
+        sidebar.style.left = clamp(rect.left, 0, maxLeft) + 'px';
+        sidebar.style.top = clamp(rect.top, 0, maxTop) + 'px';
+        const maxW = Math.min(900, window.innerWidth - 20);
+        const maxH = window.innerHeight - 20;
+        sidebar.style.width = Math.min(rect.width, maxW) + 'px';
+        sidebar.style.height = Math.min(rect.height, maxH) + 'px';
+    } else {
+        const w = Math.min(parseInt(sidebar.style.width || '400', 10), Math.min(600, window.innerWidth - 20));
+        sidebar.style.width = w + 'px';
     }
 });
