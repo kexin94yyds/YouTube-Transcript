@@ -93,6 +93,11 @@
     color: #0f0f0f;
 }
 
+.control-btn.active {
+    background-color: #e8f0fe;
+    color: #065fd4;
+}
+
 .transcript-content {
     flex: 1;
     overflow-y: auto;

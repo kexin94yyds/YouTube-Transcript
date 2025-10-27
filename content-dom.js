@@ -578,6 +578,7 @@ function createSidebar() {
         <div class="header-top">
             <h3>Transcript</h3>
             <div class="header-controls">
+                <button id="pin-sidebar" class="control-btn" title="固定侧边栏">📌</button>
                 <button id="copy-transcript" class="control-btn" title="Copy transcript">📋</button>
                 <button id="copy-url" class="control-btn" title="Copy URL">🔗</button>
                 <button id="toggle-sidebar" class="toggle-btn" title="Close">×</button>
@@ -592,7 +593,9 @@ function createSidebar() {
     
     sidebar.appendChild(header);
     sidebar.appendChild(content);
+
     document.body.appendChild(sidebar);
+
 
     // 创建尺寸手柄（左侧和右下角）
     const leftHandle = document.createElement('div');
@@ -606,6 +609,10 @@ function createSidebar() {
     const toggleBtn = document.getElementById('toggle-sidebar');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', toggleSidebar);
+    }
+    const pinBtn = document.getElementById('pin-sidebar');
+    if (pinBtn) {
+        pinBtn.addEventListener('click', () => setPinned(!isPinned()));
     }
     const copyBtn = document.getElementById('copy-transcript');
     if (copyBtn) {
@@ -624,6 +631,10 @@ function createSidebar() {
     enableSidebarDrag(sidebar, header);
     enableSidebarResize(sidebar, leftHandle, brHandle);
     applySavedSidebarState(sidebar);
+    // 打开即固定在右侧（不覆盖视频）
+    setPinned(true);
+    // 如果之前是固定状态，则应用保留空间
+    applyPinnedState();
 
     // 在用户与滚动区域交互时，短暂禁用自动跟随
     const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
@@ -678,6 +689,70 @@ function dockSidebarRight(sidebar, width = 400) {
     sidebar.style.width = w + 'px';
     sidebar.style.height = '100vh';
     saveSidebarState({ mode: 'dock-right', width: w });
+    // 若处于固定模式，更新右侧保留空间
+    updatePinnedSpace();
+}
+
+// --- 固定模式（Pin）支持 ---
+const PIN_STYLE_ID = 'yt-transcript-pin-style';
+
+function ensurePinStyleElement() {
+    if (document.getElementById(PIN_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = PIN_STYLE_ID;
+    style.textContent = `
+      /* 当固定时，为页面右侧预留与侧边栏相等的空间 */
+      html.yt-transcript-pinned body { padding-right: var(--yt-transcript-sidebar-width, 400px) !important; transition: padding-right .2s ease; }
+      /* 扩展可用宽度：让播放区根据剩余空间自适应 */
+      html.yt-transcript-pinned ytd-watch-flexy,
+      html.yt-transcript-pinned ytd-watch-flexy #columns,
+      html.yt-transcript-pinned ytd-watch-flexy #primary,
+      html.yt-transcript-pinned ytd-watch-flexy #primary-inner,
+      html.yt-transcript-pinned ytd-watch-flexy #player,
+      html.yt-transcript-pinned ytd-watch-flexy #player-container-outer,
+      html.yt-transcript-pinned ytd-watch-flexy #player-theater-container {
+        max-width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+        width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+      }
+      html.yt-transcript-pinned ytd-app { overflow-x: hidden !important; }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+}
+
+function isPinned() {
+    try { return localStorage.getItem('transcriptPinned') === '1'; } catch (_) { return false; }
+}
+
+function setPinned(pinned) {
+    try { localStorage.setItem('transcriptPinned', pinned ? '1' : '0'); } catch (_) {}
+    applyPinnedState();
+}
+
+function applyPinnedState() {
+    const sidebar = document.getElementById('transcript-sidebar');
+    const pinBtn = document.getElementById('pin-sidebar');
+    const pinned = isPinned();
+    if (!sidebar) return;
+    ensurePinStyleElement();
+    if (pinned) {
+        // 固定时将侧边栏停靠在右侧，确保尺寸和位置稳定
+        dockSidebarRight(sidebar, parseInt(sidebar.style.width || '400', 10));
+        document.documentElement.classList.add('yt-transcript-pinned');
+        if (pinBtn) { pinBtn.classList.add('active'); pinBtn.title = '取消固定'; }
+    } else {
+        document.documentElement.classList.remove('yt-transcript-pinned');
+        if (pinBtn) { pinBtn.classList.remove('active'); pinBtn.title = '固定侧边栏'; }
+    }
+    updatePinnedSpace();
+}
+
+function updatePinnedSpace() {
+    const sidebar = document.getElementById('transcript-sidebar');
+    if (!sidebar) return;
+    if (!isPinned()) return;
+    const rect = sidebar.getBoundingClientRect();
+    const w = Math.max(280, Math.min(900, rect.width || parseInt(sidebar.style.width || '400', 10)));
+    document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
 }
 
 function enableSidebarDrag(sidebar, handle) {
@@ -708,6 +783,7 @@ function enableSidebarDrag(sidebar, handle) {
             height: parseInt(sidebar.style.height || (window.innerHeight)),
         });
         handle.style.cursor = 'move';
+        updatePinnedSpace();
     };
 
     handle.addEventListener('mousedown', (e) => {
@@ -738,26 +814,34 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
         const startX = e.clientX;
         const startLeft = rect.left;
         const startWidth = rect.width;
-        sidebar.style.right = 'auto';
+        const dockedRight = (sidebar.style.right === '0px') || isPinned();
+        if (!dockedRight) sidebar.style.right = 'auto';
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
-            let newLeft = startLeft + dx;
-            let newWidth = startWidth - dx;
-            if (newWidth < minW) { newWidth = minW; newLeft = startLeft + (startWidth - minW); }
             const maxW = Math.min(900, window.innerWidth - 20);
-            if (newWidth > maxW) { newWidth = maxW; newLeft = startLeft + (startWidth - maxW); }
-            newLeft = clamp(newLeft, 0, window.innerWidth - newWidth - 10);
-            sidebar.style.left = newLeft + 'px';
-            sidebar.style.width = newWidth + 'px';
+            let newWidth = startWidth - dx; // 向左拖大，向右拖小
+            newWidth = clamp(newWidth, minW, maxW);
+            if (dockedRight) {
+                // 仍停靠右侧，仅改变宽度
+                sidebar.style.width = newWidth + 'px';
+            } else {
+                let newLeft = startLeft + dx;
+                newLeft = clamp(newLeft, 0, window.innerWidth - newWidth - 10);
+                sidebar.style.left = newLeft + 'px';
+                sidebar.style.width = newWidth + 'px';
+            }
+            updatePinnedSpace();
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             const rect2 = sidebar.getBoundingClientRect();
-            saveSidebarState({
-                mode: 'free', left: rect2.left, top: rect2.top,
-                width: rect2.width, height: rect2.height
-            });
+            if (dockedRight) {
+                saveSidebarState({ mode: 'dock-right', width: rect2.width });
+            } else {
+                saveSidebarState({ mode: 'free', left: rect2.left, top: rect2.top, width: rect2.width, height: rect2.height });
+            }
+            updatePinnedSpace();
         };
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
@@ -770,6 +854,7 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
         const rect = sidebar.getBoundingClientRect();
         const startX = e.clientX, startY = e.clientY;
         const startW = rect.width, startH = rect.height;
+        const dockedRight = (sidebar.style.right === '0px') || isPinned();
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
             const dy = ev.clientY - startY;
@@ -779,19 +864,22 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
             let h = clamp(startH + dy, minH, maxH);
             sidebar.style.width = w + 'px';
             sidebar.style.height = h + 'px';
+            updatePinnedSpace();
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             const rect2 = sidebar.getBoundingClientRect();
-            // 进入自由模式以保存大小
-            sidebar.style.right = 'auto';
-            sidebar.style.left = rect2.left + 'px';
-            sidebar.style.top = rect2.top + 'px';
-            saveSidebarState({
-                mode: 'free', left: rect2.left, top: rect2.top,
-                width: rect2.width, height: rect2.height
-            });
+            if (dockedRight) {
+                saveSidebarState({ mode: 'dock-right', width: rect2.width });
+            } else {
+                // 进入自由模式以保存大小
+                sidebar.style.right = 'auto';
+                sidebar.style.left = rect2.left + 'px';
+                sidebar.style.top = rect2.top + 'px';
+                saveSidebarState({ mode: 'free', left: rect2.left, top: rect2.top, width: rect2.width, height: rect2.height });
+            }
+            updatePinnedSpace();
         };
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
@@ -1061,6 +1149,9 @@ function hideSidebar() {
     } catch (_) {}
     // 直接移除节点，避免隐藏后残留状态导致交互异常
     try { sidebar.remove(); } catch(_) { sidebar.style.display = 'none'; }
+    // 关闭时清理页面预留空间，但不改变固定偏好（下次仍按用户偏好恢复）
+    document.documentElement.classList.remove('yt-transcript-pinned');
+    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
 }
 
 function showSidebar() {
@@ -1123,6 +1214,11 @@ new MutationObserver(() => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('[YouTube转录 DOM] 收到消息:', request.type);
     
+    if (request.type === 'PING_TRANSCRIPT') {
+        sendResponse({ ok: true });
+        return; // 同步响应
+    }
+
     if (request.type === 'TOGGLE_SIDEBAR') {
         const sidebar = document.getElementById('transcript-sidebar');
         
@@ -1169,4 +1265,6 @@ window.addEventListener('resize', () => {
         const w = Math.min(parseInt(sidebar.style.width || '400', 10), Math.min(600, window.innerWidth - 20));
         sidebar.style.width = w + 'px';
     }
+    // 固定模式下同步预留空间
+    updatePinnedSpace();
 });
