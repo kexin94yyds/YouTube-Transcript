@@ -288,420 +288,7 @@ function hideSidebar() {
 
 ---
 
-## 问题 #2: 侧边栏加载速度慢，用户体验不佳
-
-**日期**: 2025-10-28  
-**状态**: ✅ 已解决  
-**严重程度**: 高
-
-### 问题描述
-
-在优化前，侧边栏从点击到显示字幕需要较长时间，用户体验不流畅：
-
-1. **等待时间长**：字幕加载需要等待 2-4 秒才能显示
-2. **原生面板闪现**：点击 transcript 按钮后，原生的 YouTube 字幕面板会短暂闪现
-3. **轮询间隔过长**：查找元素的轮询间隔为 500ms，响应缓慢
-4. **缺少快速路径**：首次加载没有优化的快速通道
-5. **布局更新延迟**：字幕加载完成后，布局更新不够及时
-
-**期望行为**：实现"极致速度"体验 - 从点击到完全显示字幕控制在 200-500ms 以内，无明显卡顿或闪现。
-
-### 根本原因
-
-#### 1. 延迟初始化策略过于保守
-
-原有代码使用传统的延迟初始化：
-
-```javascript
-// 原有代码 - 延迟 2 秒才开始获取字幕
-function init() {
-    setTimeout(() => {
-        fetchTranscriptFromDOM();
-    }, 2000);  // ❌ 延迟太长
-}
-```
-
-**问题**：用户需要等待 2 秒才能看到字幕开始加载。
-
-#### 2. 轮询间隔过长
-
-原有的元素查找使用较长的轮询间隔：
-
-```javascript
-// 原有代码 - 500ms 的轮询间隔
-async function findTranscriptButton() {
-    for (let i = 0; i < 10; i++) {
-        // ... 查找逻辑 ...
-        await new Promise(resolve => setTimeout(resolve, 500));  // ❌ 太慢
-    }
-}
-```
-
-**问题**：最坏情况下需要 5 秒才能找到按钮。
-
-#### 3. 缺少智能等待机制
-
-原有代码只使用简单的轮询，没有利用 MutationObserver 进行即时响应：
-
-```javascript
-// 原有代码 - 纯轮询方式
-async function waitForTranscriptPanel(maxTries = 20, intervalMs = 100) {
-    for (let i = 0; i < maxTries; i++) {
-        const panel = document.querySelector('...');
-        if (panel) return panel;
-        await new Promise(r => setTimeout(r, intervalMs));  // ❌ 被动等待
-    }
-}
-```
-
-**问题**：无法在元素出现的第一时间捕获，总是有延迟。
-
-#### 4. 原生面板闪现问题
-
-点击 transcript 按钮后才开始监听原生面板，导致面板已经出现并显示：
-
-```javascript
-// 原有代码 - 点击后才开始隐藏
-transcriptButton.click();
-// ... 延迟后才开始监听和隐藏
-setTimeout(() => {
-    const nativePanel = document.querySelector('...');
-    if (nativePanel) {
-        nativePanel.style.display = 'none';  // ❌ 已经闪现了
-    }
-}, 100);
-```
-
-**问题**：用户会看到原生面板短暂显示，体验不佳。
-
-### 解决方案
-
-#### 方案 1: 实现快速初始化路径
-
-**文件**: `content-dom.js` - 新增 `quickInit()` 函数
-
-**修改内容**：
-```javascript
-// 快速初始化 - 立即显示侧边栏，异步加载字幕
-function quickInit() {
-    console.log('[YouTube转录 DOM] 快速初始化开始...');
-    
-    // 立即创建侧边栏
-    createSidebar();
-    
-    // 立即显示加载状态
-    showLoadingMessage('正在加载字幕...');
-    
-    // 🚀 极致优化：立即开始获取字幕，0 延迟！
-    setTimeout(() => {
-        fetchTranscriptFromDOM();
-    }, 0);
-}
-```
-
-**关键点**：
-- 使用 `setTimeout(..., 0)` 立即执行，而不是延迟 2 秒
-- 先显示侧边栏框架，再加载内容，提升感知速度
-- 用户立即看到反馈，不会觉得"没反应"
-
-#### 方案 2: 优化轮询间隔为极速响应
-
-**文件**: `content-dom.js` - 优化各个查找函数
-
-**修改内容**：
-```javascript
-// 原有：500ms 间隔
-async function findTranscriptButton() {
-    for (let i = 0; i < 10; i++) {
-        // ... 查找逻辑 ...
-        await new Promise(resolve => setTimeout(resolve, 500));  // ❌ 太慢
-    }
-}
-
-// 🚀 优化后：50ms 间隔
-async function findTranscriptButton() {
-    for (let i = 0; i < 10; i++) {
-        // ... 查找逻辑 ...
-        await new Promise(resolve => setTimeout(resolve, 50));  // ✅ 快 10 倍！
-    }
-}
-
-// 其他优化
-await waitForTranscriptPanel(10, 10);  // 最快 ~100ms（原来是 20 * 60 = 1200ms）
-await waitForElement('...', 100);      // 减少到 100ms（原来是 600ms）
-```
-
-**关键点**：
-- 将查找按钮的间隔从 500ms 降到 50ms（快 10 倍）
-- 将面板等待的间隔从 60ms 降到 10ms
-- 将菜单等待的超时从 800ms 降到 300ms
-- 大幅提升响应速度
-
-#### 方案 3: 实现 Ultra 级 MutationObserver 智能等待
-
-**文件**: `content-dom.js` - 新增 `waitForTranscriptPanelUltra()` 和 `waitForTranscriptSegmentsUltra()`
-
-**修改内容**：
-```javascript
-// Ultra 级：MutationObserver 捕捉出现，最低延迟
-function waitForElement(selector, timeoutMs = 600) {
-    return new Promise((resolve) => {
-        const existing = document.querySelector(selector);
-        if (existing) { resolve(existing); return; }
-        
-        // 🚀 使用 MutationObserver 实时监听
-        const obs = new MutationObserver(() => {
-            const el = document.querySelector(selector);
-            if (el) { 
-                obs.disconnect(); 
-                resolve(el); 
-            }
-        });
-        obs.observe(document.documentElement, { 
-            childList: true, 
-            subtree: true 
-        });
-        
-        // 超时后回退到查询结果
-        setTimeout(() => { 
-            obs.disconnect(); 
-            resolve(document.querySelector(selector)); 
-        }, timeoutMs);
-    });
-}
-
-async function waitForTranscriptPanelUltra() {
-    // 🚀 极致优化：减少等待时间到 100ms
-    const viaObserver = await waitForElement('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]', 100);
-    if (viaObserver) return viaObserver;
-    return await waitForTranscriptPanelFast();
-}
-
-function waitForTranscriptSegmentsUltra(panel) {
-    return new Promise((resolve) => {
-        const getSegs = () => panel?.querySelectorAll('ytd-transcript-segment-renderer');
-        let hasReturned = false;
-        
-        const done = (segs) => { 
-            if (hasReturned) return;
-            hasReturned = true;
-            obs.disconnect();
-            resolve(segs || []); 
-        };
-        
-        const check = () => {
-            const segs = getSegs();
-            const count = segs ? segs.length : 0;
-            
-            // 🚀 极致优化：一旦找到 5 个或以上字幕片段，立即返回！
-            if (count >= 5) {
-                done(segs);
-                return;
-            }
-        };
-        
-        const obs = new MutationObserver(check);
-        obs.observe(panel, { childList: true, subtree: true });
-        check();  // 初始检查
-        
-        // 最多等待 2 秒
-        setTimeout(() => done(getSegs()), 2000);
-    });
-}
-```
-
-**关键点**：
-- 使用 MutationObserver 在元素出现的第一时间捕获
-- 检测到 5 个字幕片段立即返回，不等待全部加载
-- 超时机制作为保底，确保不会永久等待
-- 实现"先到先得"的快速响应
-
-#### 方案 4: 提前隐藏原生面板，防止闪现
-
-**文件**: `content-dom.js` - 优化 `fetchTranscriptFromDOM()` 函数
-
-**修改内容**：
-```javascript
-async function fetchTranscriptFromDOM() {
-    if (transcriptButton) {
-        console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
-        
-        // 🔧 关键修复：在点击之前设置监听器，一旦原生面板出现就立即隐藏
-        let hasHidden = false;
-        const hideObserver = new MutationObserver((mutations) => {
-            if (hasHidden) return;
-            
-            const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-            if (nativePanel && nativePanel.getAttribute('visibility') !== 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN') {
-                hasHidden = true;
-                // 立即隐藏，防止闪现
-                nativePanel.style.opacity = '0';
-                nativePanel.style.pointerEvents = 'none';
-                console.log('[YouTube转录 DOM] 原生面板出现，立即隐藏防止闪现');
-                
-                // 🚀 极致优化：立即断开监听器，无需等待
-                setTimeout(() => {
-                    hideObserver.disconnect();
-                }, 0);
-            }
-        });
-        
-        // 开始监听（只监听属性变化，减少触发）
-        hideObserver.observe(document.body, {
-            attributes: true,
-            attributeFilter: ['visibility'],
-            subtree: true
-        });
-        
-        // 点击前如果面板已存在，先隐藏
-        const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-        if (nativePanelPre) {
-            nativePanelPre.style.opacity = '0';
-            nativePanelPre.style.pointerEvents = 'none';
-            hasHidden = true;
-        }
-        
-        transcriptButton.click();
-        
-        // 🚀 优化：100ms后停止监听（面板通常很快出现）
-        setTimeout(() => {
-            hideObserver.disconnect();
-        }, 100);
-    }
-}
-```
-
-**关键点**：
-- **提前监听**：在点击按钮前就开始监听原生面板
-- **立即隐藏**：面板一出现就设置 `opacity: 0`，用户看不到
-- **高效监听**：只监听 `visibility` 属性变化，减少触发次数
-- **及时清理**：100ms 后断开监听器，避免性能影响
-
-#### 方案 5: 立即触发布局重算
-
-**文件**: `content-dom.js` - 优化字幕加载完成后的处理
-
-**修改内容**：
-```javascript
-if (transcriptData.length > 0) {
-    console.log('[YouTube转录 DOM] 成功获取', transcriptData.length, '条字幕');
-    renderTranscript();
-    
-    // 🚀 极致优化：立即显示高亮，无需等待
-    if (videoElement) {
-        updateCurrentHighlight();
-        startTimeTracking();
-    }
-    
-    // 立即关闭原生面板
-    closeNativeTranscript(transcriptPanel);
-    
-    // 🚀 极致优化：立即触发布局重算
-    requestAnimationFrame(() => {
-        window.dispatchEvent(new Event('resize'));
-        console.log('[YouTube转录 DOM] 触发布局重算');
-    });
-    
-    // 保存标记：字幕加载成功
-    sessionStorage.setItem('yt-transcript-loaded', 'true');
-    return;
-}
-```
-
-**关键点**：
-- 使用 `setTimeout(..., 0)` 立即执行，不延迟
-- 先更新高亮再触发布局，确保视觉连贯
-- 使用 `requestAnimationFrame` 确保在下一帧执行
-- 所有操作串行但无延迟，最大化速度
-
-#### 方案 6: 双重保障机制（Ultra + Fast）
-
-**文件**: `content-dom.js` - 添加备用方案
-
-**修改内容**：
-```javascript
-// 🔧 修复：使用 Ultra 方法等待字幕片段
-let segments = await waitForTranscriptSegmentsUltra(transcriptPanel);
-console.log('[YouTube转录 DOM] Ultra方法找到字幕片段:', segments.length);
-
-// 🔧 修复：如果 Ultra 方法失败（返回0个），使用备用 Fast 方法重试
-if (!segments || segments.length === 0) {
-    console.log('[YouTube转录 DOM] Ultra方法未找到字幕，尝试Fast备用方法...');
-    segments = await waitForTranscriptSegmentsFast(transcriptPanel);
-    console.log('[YouTube转录 DOM] Fast方法找到字幕片段:', segments.length);
-}
-```
-
-**关键点**：
-- Ultra 方法优先（最快）
-- Fast 方法作为备用（更稳定）
-- 双重保障确保成功率
-- 两种方法都比原来快很多
-
-### 性能对比
-
-#### 优化前
-- 查找按钮：最多 5000ms (10 × 500ms)
-- 等待面板：最多 1200ms (20 × 60ms)
-- 等待字幕：最多 4000ms (80 × 50ms)
-- **总计**：最坏情况 ~10 秒
-
-#### 优化后
-- 查找按钮：最多 500ms (10 × 50ms) - **快 10 倍**
-- 等待面板：最快 100ms (MutationObserver) - **快 12 倍**
-- 等待字幕：最快 10ms（检测到 5 个片段） - **快 400 倍**
-- **总计**：最好情况 ~200ms，最坏情况 ~2 秒 - **快 5-50 倍**
-
-### 验证方法
-
-完成修改后，通过以下步骤验证优化效果：
-
-1. **首次加载速度测试**
-   - 打开 YouTube 视频页面
-   - 点击扩展图标
-   - ✅ 验证侧边栏是否在 500ms 内显示
-   - ✅ 验证字幕是否在 2 秒内完全加载
-
-2. **原生面板闪现测试**
-   - 多次点击扩展图标
-   - ✅ 验证是否完全看不到原生面板闪现
-
-3. **多次切换测试**
-   - 隐藏侧边栏后再次显示
-   - ✅ 验证第二次显示是否同样快速
-
-4. **不同网络环境测试**
-   - 在快速和慢速网络下测试
-   - ✅ 验证在各种情况下都能快速响应
-
-5. **控制台日志验证**
-   - 查看 console.log 输出的时间戳
-   - ✅ 验证各个步骤的耗时是否在预期范围
-
-### 相关提交
-
-- **优化实现**: `82999ee` - 优化速度成功 - 使用 DOM 直接操作方式
-- **合并到 main**: `2730366` - 合并 optimize-speed-ultra 到 main
-
-### 经验教训
-
-1. **用户感知速度最重要**：先显示框架再加载内容，比等所有内容准备好再显示体验更好
-
-2. **MutationObserver 是利器**：对于动态内容，MutationObserver 比轮询快得多，应该优先使用
-
-3. **多级回退策略**：Ultra → Fast → Fallback，确保既快速又可靠
-
-4. **提前准备很关键**：在触发事件（如点击按钮）前就准备好监听器，能避免很多时序问题
-
-5. **小延迟积累成大问题**：将 500ms 优化到 50ms 看似不大，但多个步骤累加后效果显著
-
-6. **智能阈值提升体验**：检测到 5 个字幕片段就立即显示，不需要等全部加载完，用户几乎感觉不到等待
-
-7. **日志记录助调试**：关键步骤都加上时间戳日志，方便分析性能瓶颈
-
----
-
-## 问题 #3: [预留位置]
+## 问题 #2: [预留位置]
 
 待补充...
 
@@ -747,3 +334,107 @@ if (!segments || segments.length === 0) {
 - [MDN: requestAnimationFrame](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
 - [MDN: ResizeObserver](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver)
 
+# YouTube 转录侧边栏 · TROUBLESHOOTING
+
+记录典型问题的“现象 → 根因 → 解决 → 验证”。遇到类似问题可按本文档快速排查。后续有新的典型问题，也按同一模板补充到此文件。
+
+— 最后更新：2025-10-28
+
+## 使用方法
+- 先对照“现象”与“复现步骤”。
+- 查看“根因”是否匹配你当前的 DOM/CSS/事件绑定状态。
+- 对照“解决方案”的具体代码定位点（文件:行），验证是否已经包含修复。
+- 按“验证清单”自检是否恢复。
+
+---
+
+## 问题 1：第二次呼出侧边栏后无法滚动目录，且不自动高亮跟随
+
+### 现象
+- 第一次打开侧边栏一切正常；关闭后再次打开：
+  - 目录无法上下滚动；
+  - 播放进度高亮却不自动滚动到可见位置；
+  - Console 仍会打印“侧边栏已显示”。
+
+### 复现步骤
+1. 打开任意 `watch` 页面，使用扩展呼出侧边栏；
+2. 关闭侧边栏；
+3. 再次呼出侧边栏；
+4. 尝试滚动目录或等待自动跟随。
+
+### 根因（多因素叠加）
+1) display 被错误改写
+- 再次显示时把 `#transcript-sidebar` 设置成 `display: block`，覆盖了 CSS 定义的 `display: flex`，导致内部 `#transcript-content` 高度不再由 flex 约束，`overflow-y: auto` 失效，表现为“看起来定住了”。
+
+2) `<video>` 节点被 YouTube 动态替换
+- YouTube 在某些布局/面板切换时会替换 `<video>` 节点。之前缓存的 `videoElement` 失效后不再发出 `timeupdate` 事件，导致高亮不再更新或不触发跟随。
+
+3) 程序化滚动被当作“用户滚动”，持续触发冷却
+- 自动跟随调用 `scrollIntoView` 会触发 `scroll` 事件。若把 `scroll` 也纳入“用户滚动冷却”来源，会导致冷却时间被不断刷新，从而长时间禁止自动跟随。
+
+### 解决方案
+A) 保留 flex 布局，恢复滚动
+- 改为用 `display: flex` 重新显示侧边栏。
+  - 文件：`content-dom.js:1389`
+  - 代码：`sidebar.style.display = 'flex';`
+
+B) 监听并重绑 `<video>` 事件
+- 新增 `observeVideoElement()` 与 `rebindVideoElement()`，在 `<video>` 被替换时自动解绑旧监听并重绑新节点。
+  - 定义：`content-dom.js:108`（观察器），`content-dom.js:120`（重绑函数）
+  - 初始化调用：`content-dom.js:49`、`content-dom.js:85`、`content-dom.js:1372`（再次显示时也重绑）
+
+C) 只把“明确的用户输入”纳入冷却
+- 移除对 `scroll` 的监听，仅监听 `wheel`/`touchstart`/`pointerdown`。同时为滚动容器设置 `touch-action: pan-y`，确保触摸滚动识别。
+  - 第一次创建时的绑定：`content-dom.js:752` 起
+  - 再次显示时的幂等绑定：`content-dom.js:1386` 起
+
+D) 确保滚动容器可交互
+- 每次显示侧边栏时，强制：
+  - `#transcript-content.style.overflowY = 'auto'`
+  - `#transcript-content.style.pointerEvents = 'auto'`
+  - `#transcript-content.style.touchAction = 'pan-y'`
+  - 定位：`content-dom.js:1386` 附近
+
+### 验证清单
+- 再次打开侧边栏，目录可正常上下滚动；
+- 播放时当前行高亮且能平滑跟随到可见区域；
+- 快速隐藏/显示侧边栏或切视频分辨率模式后，行为仍正常；
+- Console 不再频繁出现“自动滚动被用户操作冷却阻止”。
+
+### 相关日志/提示
+- “Added non-passive event listener …” 为 YouTube 自身脚本提示；本扩展的事件监听均为 `passive: true`，可忽略。
+
+---
+
+## 新问题记录模板
+复制粘贴本模板，在下方追加条目：
+
+### 问题 N：<一句话描述>
+
+- 现象：<用户可感知的表现/截图关键信息>
+- 复现步骤：<条目化步骤，越短越好>
+- 根因：<明确的技术原因，最好指向具体代码/样式/生命周期>
+- 解决方案：
+  - 变更点 1：`文件:行` 描述
+  - 变更点 2：`文件:行` 描述
+- 验证清单：<3-5条自测要点>
+- 备注：<兼容性、回归风险、后续优化方向>
+
+---
+
+## 附：快速自检片段
+在 Console 执行，判断是否处于健康状态：
+
+```js
+(() => {
+  const s = document.getElementById('transcript-sidebar');
+  const c = document.getElementById('transcript-content');
+  const okLayout = s && getComputedStyle(s).display === 'flex';
+  const okScroll = c && c.scrollHeight > c.clientHeight && getComputedStyle(c).overflowY !== 'hidden';
+  const v = document.querySelector('video');
+  const okVideo = !!v;
+  return { okLayout, okScroll, okVideo };
+})();
+```
+
+若 `okLayout/okScroll/okVideo` 不是 `true`，依次对照“解决方案”部分排查。
