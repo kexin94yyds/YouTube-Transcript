@@ -334,3 +334,107 @@ function hideSidebar() {
 - [MDN: requestAnimationFrame](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
 - [MDN: ResizeObserver](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver)
 
+# YouTube 转录侧边栏 · TROUBLESHOOTING
+
+记录典型问题的“现象 → 根因 → 解决 → 验证”。遇到类似问题可按本文档快速排查。后续有新的典型问题，也按同一模板补充到此文件。
+
+— 最后更新：2025-10-28
+
+## 使用方法
+- 先对照“现象”与“复现步骤”。
+- 查看“根因”是否匹配你当前的 DOM/CSS/事件绑定状态。
+- 对照“解决方案”的具体代码定位点（文件:行），验证是否已经包含修复。
+- 按“验证清单”自检是否恢复。
+
+---
+
+## 问题 1：第二次呼出侧边栏后无法滚动目录，且不自动高亮跟随
+
+### 现象
+- 第一次打开侧边栏一切正常；关闭后再次打开：
+  - 目录无法上下滚动；
+  - 播放进度高亮却不自动滚动到可见位置；
+  - Console 仍会打印“侧边栏已显示”。
+
+### 复现步骤
+1. 打开任意 `watch` 页面，使用扩展呼出侧边栏；
+2. 关闭侧边栏；
+3. 再次呼出侧边栏；
+4. 尝试滚动目录或等待自动跟随。
+
+### 根因（多因素叠加）
+1) display 被错误改写
+- 再次显示时把 `#transcript-sidebar` 设置成 `display: block`，覆盖了 CSS 定义的 `display: flex`，导致内部 `#transcript-content` 高度不再由 flex 约束，`overflow-y: auto` 失效，表现为“看起来定住了”。
+
+2) `<video>` 节点被 YouTube 动态替换
+- YouTube 在某些布局/面板切换时会替换 `<video>` 节点。之前缓存的 `videoElement` 失效后不再发出 `timeupdate` 事件，导致高亮不再更新或不触发跟随。
+
+3) 程序化滚动被当作“用户滚动”，持续触发冷却
+- 自动跟随调用 `scrollIntoView` 会触发 `scroll` 事件。若把 `scroll` 也纳入“用户滚动冷却”来源，会导致冷却时间被不断刷新，从而长时间禁止自动跟随。
+
+### 解决方案
+A) 保留 flex 布局，恢复滚动
+- 改为用 `display: flex` 重新显示侧边栏。
+  - 文件：`content-dom.js:1389`
+  - 代码：`sidebar.style.display = 'flex';`
+
+B) 监听并重绑 `<video>` 事件
+- 新增 `observeVideoElement()` 与 `rebindVideoElement()`，在 `<video>` 被替换时自动解绑旧监听并重绑新节点。
+  - 定义：`content-dom.js:108`（观察器），`content-dom.js:120`（重绑函数）
+  - 初始化调用：`content-dom.js:49`、`content-dom.js:85`、`content-dom.js:1372`（再次显示时也重绑）
+
+C) 只把“明确的用户输入”纳入冷却
+- 移除对 `scroll` 的监听，仅监听 `wheel`/`touchstart`/`pointerdown`。同时为滚动容器设置 `touch-action: pan-y`，确保触摸滚动识别。
+  - 第一次创建时的绑定：`content-dom.js:752` 起
+  - 再次显示时的幂等绑定：`content-dom.js:1386` 起
+
+D) 确保滚动容器可交互
+- 每次显示侧边栏时，强制：
+  - `#transcript-content.style.overflowY = 'auto'`
+  - `#transcript-content.style.pointerEvents = 'auto'`
+  - `#transcript-content.style.touchAction = 'pan-y'`
+  - 定位：`content-dom.js:1386` 附近
+
+### 验证清单
+- 再次打开侧边栏，目录可正常上下滚动；
+- 播放时当前行高亮且能平滑跟随到可见区域；
+- 快速隐藏/显示侧边栏或切视频分辨率模式后，行为仍正常；
+- Console 不再频繁出现“自动滚动被用户操作冷却阻止”。
+
+### 相关日志/提示
+- “Added non-passive event listener …” 为 YouTube 自身脚本提示；本扩展的事件监听均为 `passive: true`，可忽略。
+
+---
+
+## 新问题记录模板
+复制粘贴本模板，在下方追加条目：
+
+### 问题 N：<一句话描述>
+
+- 现象：<用户可感知的表现/截图关键信息>
+- 复现步骤：<条目化步骤，越短越好>
+- 根因：<明确的技术原因，最好指向具体代码/样式/生命周期>
+- 解决方案：
+  - 变更点 1：`文件:行` 描述
+  - 变更点 2：`文件:行` 描述
+- 验证清单：<3-5条自测要点>
+- 备注：<兼容性、回归风险、后续优化方向>
+
+---
+
+## 附：快速自检片段
+在 Console 执行，判断是否处于健康状态：
+
+```js
+(() => {
+  const s = document.getElementById('transcript-sidebar');
+  const c = document.getElementById('transcript-content');
+  const okLayout = s && getComputedStyle(s).display === 'flex';
+  const okScroll = c && c.scrollHeight > c.clientHeight && getComputedStyle(c).overflowY !== 'hidden';
+  const v = document.querySelector('video');
+  const okVideo = !!v;
+  return { okLayout, okScroll, okVideo };
+})();
+```
+
+若 `okLayout/okScroll/okVideo` 不是 `true`，依次对照“解决方案”部分排查。
