@@ -814,18 +814,37 @@ function ensurePinStyleElement() {
     style.id = PIN_STYLE_ID;
     style.textContent = `
       /* 当固定时，为页面右侧预留与侧边栏相等的空间 */
-      html.yt-transcript-pinned body { padding-right: var(--yt-transcript-sidebar-width, 400px) !important; transition: padding-right .2s ease; }
-      /* 扩展可用宽度：让播放区根据剩余空间自适应 */
+      html.yt-transcript-pinned body { 
+        padding-right: var(--yt-transcript-sidebar-width, 400px) !important; 
+      }
+      
+      /* 🔧 强制视频容器和播放器调整宽度 */
       html.yt-transcript-pinned ytd-watch-flexy,
       html.yt-transcript-pinned ytd-watch-flexy #columns,
       html.yt-transcript-pinned ytd-watch-flexy #primary,
-      html.yt-transcript-pinned ytd-watch-flexy #primary-inner,
+      html.yt-transcript-pinned ytd-watch-flexy #primary-inner {
+        max-width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+        width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+      }
+      
+      /* 🔧 关键：强制视频播放器本身调整大小 */
+      html.yt-transcript-pinned #player-container,
+      html.yt-transcript-pinned #movie_player,
+      html.yt-transcript-pinned .html5-video-container,
+      html.yt-transcript-pinned .html5-video-player,
+      html.yt-transcript-pinned video {
+        max-width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+        width: 100% !important;
+      }
+      
+      /* 🔧 针对剧场模式和全屏模式 */
       html.yt-transcript-pinned ytd-watch-flexy #player,
       html.yt-transcript-pinned ytd-watch-flexy #player-container-outer,
       html.yt-transcript-pinned ytd-watch-flexy #player-theater-container {
         max-width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
         width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
       }
+      
       html.yt-transcript-pinned ytd-app { overflow-x: hidden !important; }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -865,6 +884,27 @@ function updatePinnedSpace() {
     const rect = sidebar.getBoundingClientRect();
     const w = Math.max(280, Math.min(900, rect.width || parseInt(sidebar.style.width || '400', 10)));
     document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
+    
+    // 🔧 强制 YouTube 播放器重新计算尺寸
+    try {
+        const player = document.querySelector('#movie_player');
+        if (player && typeof player.updateVideoElementSize === 'function') {
+            player.updateVideoElementSize();
+        }
+        
+        // 触发视频容器的尺寸重算
+        const video = document.querySelector('video');
+        if (video) {
+            const currentTime = video.currentTime;
+            // 通过微小的样式变化触发重排
+            video.style.opacity = '0.9999';
+            requestAnimationFrame(() => {
+                video.style.opacity = '1';
+            });
+        }
+    } catch (e) {
+        // 忽略错误
+    }
 }
 
 function enableSidebarDrag(sidebar, handle) {
@@ -880,6 +920,13 @@ function enableSidebarDrag(sidebar, handle) {
         const newTop = clamp(origTop + dy, 0, window.innerHeight - 80); // 留出上方空间
         sidebar.style.left = newLeft + 'px';
         sidebar.style.top = newTop + 'px';
+        
+        // 🔧 实时更新布局，让视频跟随侧边栏移动
+        updatePinnedSpace();
+        // 使用 requestAnimationFrame 确保布局更新被应用
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
     };
 
     const onMouseUp = () => {
@@ -942,7 +989,13 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
                 sidebar.style.left = newLeft + 'px';
                 sidebar.style.width = newWidth + 'px';
             }
+            
+            // 🔧 实时更新布局，让视频跟随侧边栏调整
             updatePinnedSpace();
+            // 使用 requestAnimationFrame 确保布局更新被应用
+            requestAnimationFrame(() => {
+                window.dispatchEvent(new Event('resize'));
+            });
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
@@ -976,7 +1029,13 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
             let h = clamp(startH + dy, minH, maxH);
             sidebar.style.width = w + 'px';
             sidebar.style.height = h + 'px';
+            
+            // 🔧 实时更新布局，让视频跟随侧边栏调整
             updatePinnedSpace();
+            // 使用 requestAnimationFrame 确保布局更新被应用
+            requestAnimationFrame(() => {
+                window.dispatchEvent(new Event('resize'));
+            });
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
@@ -1256,6 +1315,20 @@ function hideSidebar() {
     sidebar.style.opacity = '0';
     sidebar.style.transform = 'translateX(100%)';
     
+    // 🔧 立即清理页面预留空间，让视频恢复满屏
+    document.documentElement.classList.remove('yt-transcript-pinned');
+    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+    
+    // 🔧 触发布局更新，让视频立即恢复满屏
+    requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+        
+        // 再次触发确保 YouTube 响应
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+    });
+    
     // 动画完成后隐藏
     setTimeout(() => {
             sidebar.style.display = 'none';
@@ -1269,10 +1342,6 @@ function hideSidebar() {
         const touch = new Touch({ identifier: 1, target: document.body, clientX: 0, clientY: 0 });
         document.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch], bubbles: true }));
     } catch (_) {}
-    
-    // 关闭时清理页面预留空间，但不改变固定偏好（下次仍按用户偏好恢复）
-    document.documentElement.classList.remove('yt-transcript-pinned');
-    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
 }
 
 function showSidebar() {
@@ -1296,6 +1365,20 @@ function showSidebar() {
     applySavedSidebarState(sidebar);
     const headerEl = document.querySelector('#transcript-sidebar .transcript-header');
     if (headerEl) headerEl.style.cursor = 'move';
+    
+    // 🔧 确保每次呼出侧边栏时，都应用固定状态，让视频移动到左边
+    applyPinnedState();
+    
+    // 🔧 触发布局更新，让视频立即自适应侧边栏大小
+    requestAnimationFrame(() => {
+        updatePinnedSpace();
+        window.dispatchEvent(new Event('resize'));
+        
+        // 再次触发确保 YouTube 完全响应
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+    });
     
     // 确保滚动容器处于可滚动状态
     const content = document.getElementById('transcript-content');
