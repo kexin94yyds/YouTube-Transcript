@@ -750,10 +750,12 @@ function createSidebar() {
 
     // 在用户与滚动区域交互时，短暂禁用自动跟随
     const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
+    // 仅监听明确的用户输入事件，避免程序化滚动触发冷却
     content.addEventListener('wheel', markUserScroll, { passive: true });
     content.addEventListener('touchstart', markUserScroll, { passive: true });
     content.addEventListener('pointerdown', markUserScroll, { passive: true });
-    content.addEventListener('scroll', markUserScroll, { passive: true });
+    // 提示触摸滚动为纵向，避免浏览器误判
+    try { content.style.touchAction = 'pan-y'; } catch (_) {}
     content.dataset.scrollHandlers = '1';
 
     // 双击标题，停靠到右侧并恢复默认尺寸
@@ -1385,13 +1387,14 @@ function showSidebar() {
     if (content) {
         content.style.overflowY = 'auto';
         content.style.pointerEvents = 'auto';
+        try { content.style.touchAction = 'pan-y'; } catch (_) {}
         // 再次绑定一次（幂等）
         if (!content.dataset.scrollHandlers) {
             const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
+            // 仅监听明确的用户输入事件，避免程序化滚动触发冷却
             content.addEventListener('wheel', markUserScroll, { passive: true });
             content.addEventListener('touchstart', markUserScroll, { passive: true });
             content.addEventListener('pointerdown', markUserScroll, { passive: true });
-            content.addEventListener('scroll', markUserScroll, { passive: true });
             content.dataset.scrollHandlers = '1';
         }
     }
