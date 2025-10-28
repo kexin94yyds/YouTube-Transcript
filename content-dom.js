@@ -158,6 +158,14 @@ async function fetchTranscriptFromDOM() {
                     // 立即关闭原生面板，避免占位
                     closeNativeTranscript(transcriptPanel);
                     
+                    // 关键修复：关闭原生面板后，强制重新应用固定状态
+                    // 因为YouTube可能会在关闭面板时重置布局
+                    setTimeout(() => {
+                        console.log('[YouTube转录 DOM] 字幕加载完成，重新确保固定状态');
+                        applyPinnedState();
+                        updatePinnedSpace();
+                    }, 100);
+                    
                     return;
                 }
             }
@@ -237,21 +245,17 @@ function closeNativeTranscript(panel) {
     try {
         console.log('[YouTube转录 DOM] 开始关闭原生面板...');
         
-        // 直接隐藏面板
+        // 直接隐藏面板（不点击关闭按钮，避免触发YouTube的布局重置）
         if (panel) {
-            // 优先尝试点击关闭按钮，确保YouTube恢复布局
-            try {
-                const btn = panel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
-                if (btn) btn.click();
-            } catch (_) {}
-
-            // 然后彻底隐藏，不再占位
+            // 彻底隐藏，不再占位
             panel.classList.add('transcript-hidden');
             panel.style.opacity = '0';
             panel.style.pointerEvents = 'none';
             panel.style.display = 'none';
+            panel.style.width = '0';
+            panel.style.maxWidth = '0';
             try { panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
-            console.log('[YouTube转录 DOM] 原生面板已隐藏');
+            console.log('[YouTube转录 DOM] 原生面板已隐藏（不触发布局重置）');
         }
         
         // 持续监控，防止被重新打开
@@ -273,15 +277,14 @@ function keepNativeTranscriptHidden() {
         if (nativePanel) {
             const isVisible = nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
             if (isVisible && !nativePanel.classList.contains('transcript-hidden')) {
-                console.log('[YouTube转录 DOM] 检测到原生面板打开，强制隐藏');
-                try {
-                    const btn = nativePanel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
-                    if (btn) btn.click();
-                } catch (_) {}
+                console.log('[YouTube转录 DOM] 检测到原生面板打开，强制隐藏（不触发布局重置）');
+                // 不点击关闭按钮，直接隐藏，避免触发YouTube布局重置
                 nativePanel.classList.add('transcript-hidden');
                 nativePanel.style.opacity = '0';
                 nativePanel.style.pointerEvents = 'none';
                 nativePanel.style.display = 'none';
+                nativePanel.style.width = '0';
+                nativePanel.style.maxWidth = '0';
                 try { nativePanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
             }
         }
@@ -562,6 +565,9 @@ function showManualInstructions() {
 
 // 创建侧边栏
 function createSidebar() {
+    // 清除所有之前的清理定时器，防止与新侧边栏冲突
+    clearAllCleanupTimers();
+    
     const existingSidebar = document.getElementById('transcript-sidebar');
     if (existingSidebar) {
         existingSidebar.remove();
@@ -594,9 +600,6 @@ function createSidebar() {
     sidebar.appendChild(header);
     sidebar.appendChild(content);
 
-    document.body.appendChild(sidebar);
-
-
     // 创建尺寸手柄（左侧和右下角）
     const leftHandle = document.createElement('div');
     leftHandle.className = 'resize-handle-left';
@@ -604,6 +607,11 @@ function createSidebar() {
     const brHandle = document.createElement('div');
     brHandle.className = 'resize-handle-br';
     sidebar.appendChild(brHandle);
+    
+    // 添加侧边栏到页面，初始状态为隐藏（准备动画）
+    sidebar.style.transform = 'translateX(100%)';
+    sidebar.style.opacity = '0';
+    document.body.appendChild(sidebar);
     
     // 绑定事件
     const toggleBtn = document.getElementById('toggle-sidebar');
@@ -627,14 +635,43 @@ function createSidebar() {
     if (searchBox) {
         searchBox.addEventListener('input', handleSearch);
     }
-    // 启用拖拽和缩放，并恢复上次位置
+    
+    // 启用拖拽和缩放
     enableSidebarDrag(sidebar, header);
     enableSidebarResize(sidebar, leftHandle, brHandle);
-    applySavedSidebarState(sidebar);
-    // 打开即固定在右侧（不覆盖视频）
+    
+    // 恢复之前的尺寸设置
+    const savedState = getSavedSidebarState();
+    const targetWidth = (savedState && savedState.width) ? savedState.width : 300;
+    
+    // 设置侧边栏尺寸但暂不触发布局变化
+    sidebar.style.width = targetWidth + 'px';
+    sidebar.style.right = '0px';
+    
+    // 始终默认固定在右侧
     setPinned(true);
-    // 如果之前是固定状态，则应用保留空间
-    applyPinnedState();
+    
+    // 使用 requestAnimationFrame 实现丝滑的入场动画
+    // 先让浏览器完成布局计算
+    requestAnimationFrame(() => {
+        // 再下一帧开始动画
+        requestAnimationFrame(() => {
+            // 1. 先应用固定状态，让页面布局开始调整
+            applyPinnedState();
+            
+            // 2. 同时让侧边栏滑入
+            sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
+            sidebar.style.transform = 'translateX(0)';
+            sidebar.style.opacity = '1';
+            
+            console.log('[YouTube转录 DOM] 侧边栏丝滑入场动画已触发');
+            
+            // 3. 动画完成后清理transition，避免影响后续操作
+            setTimeout(() => {
+                sidebar.style.transition = '';
+            }, 450);
+        });
+    });
 
     // 在用户与滚动区域交互时，短暂禁用自动跟随
     const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
@@ -681,7 +718,7 @@ function applySavedSidebarState(sidebar) {
     }
 }
 
-function dockSidebarRight(sidebar, width = 400) {
+function dockSidebarRight(sidebar, width = 300) {
     sidebar.style.left = '';
     sidebar.style.top = '';
     sidebar.style.right = '0px';
@@ -701,20 +738,66 @@ function ensurePinStyleElement() {
     const style = document.createElement('style');
     style.id = PIN_STYLE_ID;
     style.textContent = `
-      /* 当固定时，为页面右侧预留与侧边栏相等的空间 */
-      html.yt-transcript-pinned body { padding-right: var(--yt-transcript-sidebar-width, 400px) !important; transition: padding-right .2s ease; }
-      /* 扩展可用宽度：让播放区根据剩余空间自适应 */
-      html.yt-transcript-pinned ytd-watch-flexy,
-      html.yt-transcript-pinned ytd-watch-flexy #columns,
-      html.yt-transcript-pinned ytd-watch-flexy #primary,
-      html.yt-transcript-pinned ytd-watch-flexy #primary-inner,
-      html.yt-transcript-pinned ytd-watch-flexy #player,
-      html.yt-transcript-pinned ytd-watch-flexy #player-container-outer,
-      html.yt-transcript-pinned ytd-watch-flexy #player-theater-container {
-        max-width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
-        width: calc(100vw - var(--yt-transcript-sidebar-width, 400px)) !important;
+      /* 固定模式：为页面右侧预留侧边栏空间，视频自动填充剩余空间 */
+      html.yt-transcript-pinned {
+        --sidebar-width: var(--yt-transcript-sidebar-width, 300px);
       }
-      html.yt-transcript-pinned ytd-app { overflow-x: hidden !important; }
+      
+      /* 页面右侧预留空间（直接作用于 body，最稳妥） */
+      html.yt-transcript-pinned body {
+        margin-right: var(--sidebar-width) !important;
+        transition: margin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* 让播放器贴左，不留中间黑边（仅在固定模式下生效） */
+      html.yt-transcript-pinned ytd-watch-flexy {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      html.yt-transcript-pinned ytd-watch-flexy #columns {
+        gap: 0 !important;
+        column-gap: 0 !important;
+      }
+      /* 移除右侧推荐/次要列，避免占位造成中间黑块 */
+      html.yt-transcript-pinned ytd-watch-flexy #secondary {
+        display: none !important;
+        width: 0 !important;
+        max-width: 0 !important;
+        flex: 0 0 0 !important;
+      }
+      html.yt-transcript-pinned ytd-watch-flexy #player-theater-container,
+      html.yt-transcript-pinned ytd-watch-flexy #player-wide-container,
+      html.yt-transcript-pinned ytd-watch-flexy #player-container,
+      html.yt-transcript-pinned ytd-watch-flexy #player {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        justify-content: flex-start !important;
+      }
+      /* 一些页面变体使用外层容器控制对齐，统一贴左 */
+      html.yt-transcript-pinned #primary,
+      html.yt-transcript-pinned #columns,
+      html.yt-transcript-pinned #center,
+      html.yt-transcript-pinned #player-container-outer {
+        margin-left: 0 !important;
+      }
+      
+      /* 取消固定时恢复 */
+      html:not(.yt-transcript-pinned) body {
+        margin-right: 0 !important;
+        transition: margin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      
+      /* 确保侧边栏始终可见 */
+      .transcript-sidebar {
+        z-index: 2147483647 !important;
+      }
+      
+      /* 全屏模式下移除预留空间 */
+      html.yt-transcript-pinned:fullscreen ytd-app,
+      html.yt-transcript-pinned:-webkit-full-screen ytd-app,
+      html.yt-transcript-pinned:-moz-full-screen ytd-app {
+        margin-right: 0 !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(style);
 }
@@ -736,7 +819,7 @@ function applyPinnedState() {
     ensurePinStyleElement();
     if (pinned) {
         // 固定时将侧边栏停靠在右侧，确保尺寸和位置稳定
-        dockSidebarRight(sidebar, parseInt(sidebar.style.width || '400', 10));
+        dockSidebarRight(sidebar, parseInt(sidebar.style.width || '300', 10));
         document.documentElement.classList.add('yt-transcript-pinned');
         if (pinBtn) { pinBtn.classList.add('active'); pinBtn.title = '取消固定'; }
     } else {
@@ -751,8 +834,40 @@ function updatePinnedSpace() {
     if (!sidebar) return;
     if (!isPinned()) return;
     const rect = sidebar.getBoundingClientRect();
-    const w = Math.max(280, Math.min(900, rect.width || parseInt(sidebar.style.width || '400', 10)));
+    const w = Math.max(280, Math.min(900, rect.width || parseInt(sidebar.style.width || '300', 10)));
     document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
+}
+
+// 禁用布局过渡动画（拖动时用，实现实时挤压效果）
+function disableLayoutTransition() {
+    const body = document.body;
+    if (body) {
+        body.style.transition = 'none';
+    }
+    
+    // 也禁用YouTube容器的transition
+    const watchFlexy = document.querySelector('ytd-watch-flexy');
+    if (watchFlexy) {
+        watchFlexy.style.transition = 'none';
+    }
+    
+    console.log('[YouTube转录 DOM] 🎯 已禁用布局过渡（拖动中，实时挤压）');
+}
+
+// 恢复布局过渡动画（拖动结束后，恢复丝滑动画）
+function enableLayoutTransition() {
+    const body = document.body;
+    if (body) {
+        // 移除内联样式，让CSS规则生效
+        body.style.transition = '';
+    }
+    
+    const watchFlexy = document.querySelector('ytd-watch-flexy');
+    if (watchFlexy) {
+        watchFlexy.style.transition = '';
+    }
+    
+    console.log('[YouTube转录 DOM] ✨ 已恢复布局过渡');
 }
 
 function enableSidebarDrag(sidebar, handle) {
@@ -779,7 +894,7 @@ function enableSidebarDrag(sidebar, handle) {
             mode: 'free',
             left: parseInt(sidebar.style.left || '0'),
             top: parseInt(sidebar.style.top || '0'),
-            width: parseInt(sidebar.style.width || '400'),
+            width: parseInt(sidebar.style.width || '300'),
             height: parseInt(sidebar.style.height || (window.innerHeight)),
         });
         handle.style.cursor = 'move';
@@ -816,6 +931,10 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
         const startWidth = rect.width;
         const dockedRight = (sidebar.style.right === '0px') || isPinned();
         if (!dockedRight) sidebar.style.right = 'auto';
+        
+        // 🎯 拖动开始：禁用transition，实现实时挤压
+        disableLayoutTransition();
+        
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
             const maxW = Math.min(900, window.innerWidth - 20);
@@ -830,11 +949,15 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
                 sidebar.style.left = newLeft + 'px';
                 sidebar.style.width = newWidth + 'px';
             }
-            updatePinnedSpace();
+            updatePinnedSpace();  // 实时更新，视频立即跟随
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            
+            // ✨ 拖动结束：恢复transition，保持丝滑动画
+            enableLayoutTransition();
+            
             const rect2 = sidebar.getBoundingClientRect();
             if (dockedRight) {
                 saveSidebarState({ mode: 'dock-right', width: rect2.width });
@@ -855,6 +978,10 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
         const startX = e.clientX, startY = e.clientY;
         const startW = rect.width, startH = rect.height;
         const dockedRight = (sidebar.style.right === '0px') || isPinned();
+        
+        // 🎯 拖动开始：禁用transition，实现实时挤压
+        disableLayoutTransition();
+        
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
             const dy = ev.clientY - startY;
@@ -864,11 +991,15 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
             let h = clamp(startH + dy, minH, maxH);
             sidebar.style.width = w + 'px';
             sidebar.style.height = h + 'px';
-            updatePinnedSpace();
+            updatePinnedSpace();  // 实时更新，视频立即跟随
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            
+            // ✨ 拖动结束：恢复transition，保持丝滑动画
+            enableLayoutTransition();
+            
             const rect2 = sidebar.getBoundingClientRect();
             if (dockedRight) {
                 saveSidebarState({ mode: 'dock-right', width: rect2.width });
@@ -1136,33 +1267,84 @@ function handleSearch(event) {
     renderTranscript(searchQuery);
 }
 
+// 用于跟踪清理定时器，避免时序冲突
+let cleanupTimers = [];
+
+// 清除所有清理定时器（定义在前面，供多个函数使用）
+function clearAllCleanupTimers() {
+    cleanupTimers.forEach(timer => clearTimeout(timer));
+    cleanupTimers = [];
+    console.log('[YouTube转录 DOM] 已清除所有清理定时器');
+}
+
 function hideSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
     if (!sidebar) return;
-    // 结束任何可能未完成的拖拽/缩放，避免状态卡住
-    try {
-        document.dispatchEvent(new MouseEvent('mouseup'));
-        document.dispatchEvent(new PointerEvent('pointerup'));
-        // 兼容触摸
-        const touch = new Touch({ identifier: 1, target: document.body, clientX: 0, clientY: 0 });
-        document.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch], bubbles: true }));
-    } catch (_) {}
-    // 直接移除节点，避免隐藏后残留状态导致交互异常
-    try { sidebar.remove(); } catch(_) { sidebar.style.display = 'none'; }
-    // 关闭时清理页面预留空间，但不改变固定偏好（下次仍按用户偏好恢复）
+    
+    console.log('[YouTube转录 DOM] 🚀 关闭侧边栏（简化版）');
+    
+    // 清除之前的定时器
+    clearAllCleanupTimers();
+    
+    // 第一步：立即清除所有固定模式相关的样式
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+    
+    // 第二步：强制设置body margin为0（使用!important级别的内联样式）
+    document.body.style.setProperty('margin-right', '0', 'important');
+    
+    // 第三步：启动侧边栏滑出动画
+    sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
+    sidebar.style.transform = 'translateX(100%)';
+    sidebar.style.opacity = '0';
+    
+    // 第四步：动画完成后移除侧边栏
+    setTimeout(() => {
+        try {
+            sidebar.remove();
+            console.log('[YouTube转录 DOM] ✅ 侧边栏已移除');
+        } catch(_) {
+            sidebar.style.display = 'none';
+        }
+    }, 450);
+    
+    // 第五步：清理完成后移除内联样式，让页面恢复正常
+    setTimeout(() => {
+        const currentSidebar = document.getElementById('transcript-sidebar');
+        if (!currentSidebar) {
+            // 只有确认没有新侧边栏时才清理
+            document.body.style.removeProperty('margin-right');
+            console.log('[YouTube转录 DOM] ✅ 视频已恢复正常大小');
+        }
+    }, 500);
 }
 
 function showSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
     if (!sidebar) return;
+    
+    console.log('[YouTube转录 DOM] 开始显示侧边栏，启动丝滑动画...');
+    
     sidebar.classList.remove('collapsed');
     sidebar.style.display = 'block';
     sidebar.style.pointerEvents = 'auto';
-    applySavedSidebarState(sidebar);
+    
+    // 恢复尺寸设置
+    const savedState = getSavedSidebarState();
+    const targetWidth = (savedState && savedState.width) ? savedState.width : 300;
+    sidebar.style.width = targetWidth + 'px';
+    sidebar.style.right = '0px';
+    
+    // 始终固定在右侧
+    setPinned(true);
+    
+    // 设置初始隐藏状态（在屏幕右侧外）
+    sidebar.style.transform = 'translateX(100%)';
+    sidebar.style.opacity = '0';
+    
     const headerEl = document.querySelector('#transcript-sidebar .transcript-header');
     if (headerEl) headerEl.style.cursor = 'move';
+    
     // 确保滚动容器处于可滚动状态
     const content = document.getElementById('transcript-content');
     if (content) {
@@ -1178,6 +1360,27 @@ function showSidebar() {
             content.dataset.scrollHandlers = '1';
         }
     }
+    
+    // 使用 requestAnimationFrame 实现丝滑的入场动画
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            // 1. 应用固定状态，让页面布局开始调整
+            applyPinnedState();
+            
+            // 2. 同时让侧边栏滑入
+            sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
+            sidebar.style.transform = 'translateX(0)';
+            sidebar.style.opacity = '1';
+            
+            console.log('[YouTube转录 DOM] 侧边栏显示动画已触发');
+            
+            // 3. 动画完成后清理transition
+            setTimeout(() => {
+                sidebar.style.transition = '';
+            }, 450);
+        });
+    });
+    
     // 立即同步一次高亮和滚动
     blockAutoScrollUntil = 0;
     setTimeout(updateCurrentHighlight, 50);
@@ -1262,7 +1465,7 @@ window.addEventListener('resize', () => {
         sidebar.style.width = Math.min(rect.width, maxW) + 'px';
         sidebar.style.height = Math.min(rect.height, maxH) + 'px';
     } else {
-        const w = Math.min(parseInt(sidebar.style.width || '400', 10), Math.min(600, window.innerWidth - 20));
+        const w = Math.min(parseInt(sidebar.style.width || '300', 10), Math.min(600, window.innerWidth - 20));
         sidebar.style.width = w + 'px';
     }
     // 固定模式下同步预留空间

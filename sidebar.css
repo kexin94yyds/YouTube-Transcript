@@ -2,17 +2,17 @@
     position: fixed;
     top: 0; /* 从顶部开始，覆盖整个屏幕 */
     right: 0;
-    width: 400px;
+    width: 300px;
     height: 100vh;
     background-color: #ffffff;
-    border-left: 1px solid #e5e5e5;
+    border-left: none;
     z-index: 2147483647; /* 最高层级，确保全屏时也显示 */
     display: flex;
     flex-direction: column;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    box-shadow: none;
     transition: transform 0.3s ease;
     font-family: "Roboto","Arial",sans-serif;
-    border-radius: 12px;
+    border-radius: 0;
     overflow: hidden;
 }
 
