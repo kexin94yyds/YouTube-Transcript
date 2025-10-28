@@ -31,6 +31,7 @@ let chapters = [];
 let currentActiveIndex = -1;
 let timeTrackingInterval = null;
 let videoElement = null;
+let videoObserver = null; // 监听 video 元素替换
 let searchQuery = '';
 // 用户手动滚动后的自动跟随冷却时间（毫秒）
 const AUTOSCROLL_COOLDOWN_MS = 2000;
@@ -45,7 +46,8 @@ function quickInit() {
             return;
         }
         
-        videoElement = document.querySelector('video');
+        // 绑定/重绑 video 事件（YouTube 有时会替换 <video> 元素）
+        rebindVideoElement();
         
         if (!videoElement) {
             setTimeout(quickInit, 500);
@@ -63,11 +65,8 @@ function quickInit() {
             fetchTranscriptFromDOM();
         }, 0);
         
-        // 绑定视频事件
-        videoElement.addEventListener('play', startTimeTracking);
-        videoElement.addEventListener('pause', updateCurrentHighlight);
-        videoElement.addEventListener('seeked', updateCurrentHighlight);
-        videoElement.addEventListener('timeupdate', onTimeUpdate);
+        // 启动观察器，后续 video 被替换时自动重绑
+        observeVideoElement();
         
     } catch (error) {
         console.error('[YouTube转录 DOM] 快速初始化错误:', error);
@@ -83,7 +82,7 @@ function init() {
             return;
         }
         
-        videoElement = document.querySelector('video');
+        rebindVideoElement();
         
         if (!videoElement) {
             setTimeout(init, 1000);
@@ -98,14 +97,45 @@ function init() {
             fetchTranscriptFromDOM();
         }, 2000);
         
-        videoElement.addEventListener('play', startTimeTracking);
-        videoElement.addEventListener('pause', updateCurrentHighlight);
-        videoElement.addEventListener('seeked', updateCurrentHighlight);
-        videoElement.addEventListener('timeupdate', onTimeUpdate);
+        observeVideoElement();
         
     } catch (error) {
         console.error('[YouTube转录 DOM] 初始化错误:', error);
     }
+}
+
+// 监听并在 <video> 被 YouTube 替换时，自动重绑事件
+function observeVideoElement() {
+    try {
+        if (videoObserver) return;
+        const root = document.querySelector('#player-container') || document.querySelector('#player') || document.body;
+        if (!root) return;
+        videoObserver = new MutationObserver(() => {
+            rebindVideoElement();
+        });
+        videoObserver.observe(root, { childList: true, subtree: true });
+    } catch (_) {}
+}
+
+function rebindVideoElement() {
+    try {
+        const el = document.querySelector('video');
+        if (el === videoElement && el) return; // 未变化
+        // 解绑旧的
+        if (videoElement) {
+            try { videoElement.removeEventListener('play', startTimeTracking); } catch(_){}
+            try { videoElement.removeEventListener('pause', updateCurrentHighlight); } catch(_){}
+            try { videoElement.removeEventListener('seeked', updateCurrentHighlight); } catch(_){}
+            try { videoElement.removeEventListener('timeupdate', onTimeUpdate); } catch(_){}
+        }
+        videoElement = el;
+        if (videoElement) {
+            videoElement.addEventListener('play', startTimeTracking);
+            videoElement.addEventListener('pause', updateCurrentHighlight);
+            videoElement.addEventListener('seeked', updateCurrentHighlight);
+            videoElement.addEventListener('timeupdate', onTimeUpdate);
+        }
+    } catch (_) {}
 }
 
 // 从YouTube DOM获取字幕
@@ -1355,7 +1385,8 @@ function showSidebar() {
     }
     
     sidebar.classList.remove('collapsed');
-    sidebar.style.display = 'block';
+    // 使用 flex（或清空）以还原 CSS 中的 display:flex，避免破坏布局导致内容无法滚动
+    sidebar.style.display = 'flex';
     sidebar.style.pointerEvents = 'auto';
     
     // 使用 requestAnimationFrame 确保丝滑过渡
@@ -1370,6 +1401,8 @@ function showSidebar() {
     
     // 🔧 确保每次呼出侧边栏时，都应用固定状态，让视频移动到左边
     applyPinnedState();
+    // 重绑一次 video 事件，防止 YouTube 在隐藏期间替换了元素
+    rebindVideoElement();
     
     // 🔧 触发布局更新，让视频立即自适应侧边栏大小
     requestAnimationFrame(() => {
@@ -1403,7 +1436,7 @@ function showSidebar() {
     
     // 立即同步一次高亮和滚动
     blockAutoScrollUntil = 0;
-    setTimeout(updateCurrentHighlight, 50);
+    setTimeout(() => { rebindVideoElement(); updateCurrentHighlight(); }, 50);
 }
 
 function toggleSidebar() {
