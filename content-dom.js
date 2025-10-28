@@ -36,7 +36,45 @@ let searchQuery = '';
 const AUTOSCROLL_COOLDOWN_MS = 2000;
 let blockAutoScrollUntil = 0; // 时间戳：在此时间前不自动滚动
 
-// 初始化
+// 快速初始化 - 立即显示侧边栏，异步加载字幕
+function quickInit() {
+    try {
+        console.log('[YouTube转录 DOM] 快速初始化开始...');
+        
+        if (!location.href.includes('/watch')) {
+            return;
+        }
+        
+        videoElement = document.querySelector('video');
+        
+        if (!videoElement) {
+            setTimeout(quickInit, 500);
+            return;
+        }
+        
+        console.log('[YouTube转录 DOM] 立即创建侧边栏...');
+        createSidebar();
+        
+        // 立即显示加载状态
+        showLoadingMessage('正在加载字幕...');
+        
+        // 🚀 极致优化：立即开始获取字幕，0 延迟！
+        setTimeout(() => {
+            fetchTranscriptFromDOM();
+        }, 0);
+        
+        // 绑定视频事件
+        videoElement.addEventListener('play', startTimeTracking);
+        videoElement.addEventListener('pause', updateCurrentHighlight);
+        videoElement.addEventListener('seeked', updateCurrentHighlight);
+        videoElement.addEventListener('timeupdate', onTimeUpdate);
+        
+    } catch (error) {
+        console.error('[YouTube转录 DOM] 快速初始化错误:', error);
+    }
+}
+
+// 初始化（传统方式，带延迟）
 function init() {
     try {
         console.log('[YouTube转录 DOM] 初始化开始...');
@@ -96,20 +134,50 @@ async function fetchTranscriptFromDOM() {
 
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
-            // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
+            
+            // 🔧 关键修复：在点击之前设置监听器，一旦原生面板出现就立即隐藏
+            let hasHidden = false; // 防止重复触发
+            const hideObserver = new MutationObserver((mutations) => {
+                if (hasHidden) return; // 已经隐藏过了，不再处理
+                
+                const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+                if (nativePanel && nativePanel.getAttribute('visibility') !== 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN') {
+                    hasHidden = true;
+                    // 立即隐藏，防止闪现（只设置必要的样式，不影响布局）
+                    nativePanel.style.opacity = '0';
+                    nativePanel.style.pointerEvents = 'none';
+                    console.log('[YouTube转录 DOM] 原生面板出现，立即隐藏防止闪现');
+                    
+                    // 🚀 极致优化：立即断开监听器，无需等待
+                    setTimeout(() => {
+                        hideObserver.disconnect();
+                    }, 0);
+                }
+            });
+            
+            // 开始监听整个文档的变化（只监听属性变化，减少触发）
+            hideObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ['visibility'],
+                subtree: true
+            });
+            
+            // 点击前如果面板已存在，先隐藏
             try {
                 const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
                 if (nativePanelPre) {
                     nativePanelPre.style.opacity = '0';
                     nativePanelPre.style.pointerEvents = 'none';
-                    nativePanelPre.style.transform = '';
-                    nativePanelPre.style.position = '';
-                    nativePanelPre.style.right = '';
-                    nativePanelPre.style.top = '';
-                    nativePanelPre.style.overflow = '';
+                    hasHidden = true;
                 }
             } catch (_) {}
+            
             transcriptButton.click();
+            
+            // 🚀 优化：100ms后停止监听（面板通常很快出现）
+            setTimeout(() => {
+                hideObserver.disconnect();
+            }, 100);
             
             // 尽快等待面板出现：优先用DOM变化捕捉，其次走快速轮询
             const transcriptPanel = await waitForTranscriptPanelUltra();
@@ -147,16 +215,20 @@ async function fetchTranscriptFromDOM() {
                     console.log('[YouTube转录 DOM] 章节数量:', chapters.length);
                     renderTranscript();
                     
-                    // 立即显示当前位置的高亮
-                    setTimeout(() => {
+                    // 🚀 极致优化：立即显示高亮，无需等待
                         if (videoElement) {
                             updateCurrentHighlight();
                             startTimeTracking();
                         }
-                    }, 100);
                     
                     // 立即关闭原生面板，避免占位
                     closeNativeTranscript(transcriptPanel);
+                    
+                    // 🚀 极致优化：立即触发布局重算
+                    requestAnimationFrame(() => {
+                        window.dispatchEvent(new Event('resize'));
+                        console.log('[YouTube转录 DOM] 触发布局重算');
+                    });
                     
                     return;
                 }
@@ -237,21 +309,24 @@ function closeNativeTranscript(panel) {
     try {
         console.log('[YouTube转录 DOM] 开始关闭原生面板...');
         
-        // 直接隐藏面板
+        // 直接隐藏面板 - 点击关闭按钮让YouTube恢复正常布局
         if (panel) {
-            // 优先尝试点击关闭按钮，确保YouTube恢复布局
+            // 先尝试点击关闭按钮，让YouTube正常处理布局
             try {
                 const btn = panel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
-                if (btn) btn.click();
+                if (btn) {
+                    btn.click();
+                    console.log('[YouTube转录 DOM] 点击关闭按钮');
+                }
             } catch (_) {}
-
-            // 然后彻底隐藏，不再占位
+            
+            // 然后隐藏（不设置width/height，避免影响布局）
             panel.classList.add('transcript-hidden');
             panel.style.opacity = '0';
             panel.style.pointerEvents = 'none';
             panel.style.display = 'none';
             try { panel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'); } catch (_) {}
-            console.log('[YouTube转录 DOM] 原生面板已隐藏');
+            console.log('[YouTube转录 DOM] 原生面板已彻底隐藏');
         }
         
         // 持续监控，防止被重新打开
@@ -271,14 +346,10 @@ function keepNativeTranscriptHidden() {
     nativeTranscriptObserver = new MutationObserver(() => {
         const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
         if (nativePanel) {
-            const isVisible = nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
-            if (isVisible && !nativePanel.classList.contains('transcript-hidden')) {
+            const visibility = nativePanel.getAttribute('visibility');
+            // 只在面板变为可见时才隐藏
+            if (visibility === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
                 console.log('[YouTube转录 DOM] 检测到原生面板打开，强制隐藏');
-                try {
-                    const btn = nativePanel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i], #dismiss-button, #close-button, tp-yt-paper-icon-button[aria-label*="close" i]');
-                    if (btn) btn.click();
-                } catch (_) {}
-                nativePanel.classList.add('transcript-hidden');
                 nativePanel.style.opacity = '0';
                 nativePanel.style.pointerEvents = 'none';
                 nativePanel.style.display = 'none';
@@ -287,11 +358,11 @@ function keepNativeTranscriptHidden() {
         }
     });
     
+    // 只监听 visibility 属性的变化，减少触发次数
     nativeTranscriptObserver.observe(document.body, {
         attributes: true,
         attributeFilter: ['visibility'],
-        subtree: true,
-        childList: true
+        subtree: true
     });
 }
 
@@ -318,7 +389,8 @@ async function findTranscriptButton() {
             }
         }
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // 🚀 极致优化：减少查找间隔从 500ms 到 50ms
+        await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     return null;
@@ -346,8 +418,8 @@ async function openMenuAndFindTranscript() {
 
     // 2) 打开菜单
     moreBtn.click();
-    // 等待弹窗出现
-    const menu = await waitForElement('ytd-menu-popup-renderer:not([hidden]) tp-yt-paper-listbox, ytd-menu-popup-renderer tp-yt-paper-listbox', 800);
+    // 🚀 极致优化：减少菜单等待时间从 800ms 到 300ms
+    const menu = await waitForElement('ytd-menu-popup-renderer:not([hidden]) tp-yt-paper-listbox, ytd-menu-popup-renderer tp-yt-paper-listbox', 300);
     if (!menu) return null;
     // 3) 在弹窗中查找包含 transcript/字幕/文字 的菜单项
     const items = menu.querySelectorAll('ytd-menu-service-item-renderer');
@@ -408,17 +480,19 @@ async function waitForTranscriptSegments(panel, maxTries = 80, intervalMs = 50) 
 
 // 快速优先：更短间隔先试几次，失败再走稳妥方案
 async function waitForTranscriptPanelFast() {
-    const fast = await waitForTranscriptPanel(15, 20); // 最快 ~300ms
+    // 🚀 极致优化：减少间隔到 10ms，更快响应
+    const fast = await waitForTranscriptPanel(10, 10); // 最快 ~100ms
     if (fast) return fast;
-    return await waitForTranscriptPanel(60, 35);        // 备份 ~2.1s 上限
+    return await waitForTranscriptPanel(30, 20);        // 备份 ~600ms
 }
 
 async function waitForTranscriptSegmentsFast(panel) {
     let segs = panel?.querySelectorAll('ytd-transcript-segment-renderer');
     if (segs && segs.length) return segs;
-    segs = await waitForTranscriptSegments(panel, 12, 25); // 最快 ~300ms
+    // 🚀 极致优化：减少间隔，更快找到字幕
+    segs = await waitForTranscriptSegments(panel, 10, 10); // 最快 ~100ms
     if (segs && segs.length) return segs;
-    return await waitForTranscriptSegments(panel, 100, 50); // 备份更稳
+    return await waitForTranscriptSegments(panel, 40, 25); // 备份 ~1s
 }
 
 // Ultra 级：MutationObserver 捕捉出现，最低延迟；超时则回退
@@ -436,7 +510,8 @@ function waitForElement(selector, timeoutMs = 600) {
 }
 
 async function waitForTranscriptPanelUltra() {
-    const viaObserver = await waitForElement('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]', 600);
+    // 🚀 极致优化：减少等待时间到 100ms（点击后面板通常立即出现）
+    const viaObserver = await waitForElement('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]', 100);
     if (viaObserver) return viaObserver;
     return await waitForTranscriptPanelFast();
 }
@@ -446,13 +521,26 @@ function waitForTranscriptSegmentsUltra(panel) {
         const getSegs = () => panel?.querySelectorAll('ytd-transcript-segment-renderer');
         let lastCount = -1;
         let stableTimer = null;
-        const done = (segs) => { try { obs.disconnect(); } catch(_){}; if (stableTimer) clearTimeout(stableTimer); resolve(segs || []); };
+        let hasReturned = false;
+        const done = (segs) => { 
+            if (hasReturned) return;
+            hasReturned = true;
+            try { obs.disconnect(); } catch(_){}; 
+            if (stableTimer) clearTimeout(stableTimer); 
+            resolve(segs || []); 
+        };
         const check = () => {
             const segs = getSegs();
             const count = segs ? segs.length : 0;
+            // 🚀 极致优化：一旦找到 5 个或以上字幕片段，立即返回！
+            if (count >= 5) {
+                done(segs);
+                return;
+            }
             if (count > 0) {
                 if (count === lastCount) {
-                    if (!stableTimer) stableTimer = setTimeout(() => done(segs), 120);
+                    // 🚀 极致优化：稳定等待只需 10ms
+                    if (!stableTimer) stableTimer = setTimeout(() => done(segs), 10);
                 } else {
                     lastCount = count;
                     if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
@@ -463,8 +551,8 @@ function waitForTranscriptSegmentsUltra(panel) {
         try { obs.observe(panel, { childList: true, subtree: true }); } catch(_) { /* ignore */ }
         // 初始检查
         check();
-        // 最长等待 1500ms 后返回当前已加载的片段
-        setTimeout(() => done(getSegs()), 1500);
+        // 🚀 极致优化：最长等待减少到 400ms
+        setTimeout(() => done(getSegs()), 400);
     });
 }
 
@@ -593,7 +681,7 @@ function createSidebar() {
     
     sidebar.appendChild(header);
     sidebar.appendChild(content);
-
+    
     document.body.appendChild(sidebar);
 
 
@@ -634,7 +722,7 @@ function createSidebar() {
     // 打开即固定在右侧（不覆盖视频）
     setPinned(true);
     // 如果之前是固定状态，则应用保留空间
-    applyPinnedState();
+            applyPinnedState();
 
     // 在用户与滚动区域交互时，短暂禁用自动跟随
     const markUserScroll = () => { blockAutoScrollUntil = Date.now() + AUTOSCROLL_COOLDOWN_MS; };
@@ -737,7 +825,7 @@ function applyPinnedState() {
     if (pinned) {
         // 固定时将侧边栏停靠在右侧，确保尺寸和位置稳定
         dockSidebarRight(sidebar, parseInt(sidebar.style.width || '400', 10));
-        document.documentElement.classList.add('yt-transcript-pinned');
+    document.documentElement.classList.add('yt-transcript-pinned');
         if (pinBtn) { pinBtn.classList.add('active'); pinBtn.title = '取消固定'; }
     } else {
         document.documentElement.classList.remove('yt-transcript-pinned');
@@ -824,7 +912,7 @@ function enableSidebarResize(sidebar, leftHandle, brHandle) {
             if (dockedRight) {
                 // 仍停靠右侧，仅改变宽度
                 sidebar.style.width = newWidth + 'px';
-            } else {
+                } else {
                 let newLeft = startLeft + dx;
                 newLeft = clamp(newLeft, 0, window.innerWidth - newWidth - 10);
                 sidebar.style.left = newLeft + 'px';
@@ -1139,6 +1227,16 @@ function handleSearch(event) {
 function hideSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
     if (!sidebar) return;
+    
+    // 使用平滑动画隐藏
+    sidebar.style.opacity = '0';
+    sidebar.style.transform = 'translateX(100%)';
+    
+    // 动画完成后隐藏
+    setTimeout(() => {
+            sidebar.style.display = 'none';
+    }, 300);
+    
     // 结束任何可能未完成的拖拽/缩放，避免状态卡住
     try {
         document.dispatchEvent(new MouseEvent('mouseup'));
@@ -1147,8 +1245,7 @@ function hideSidebar() {
         const touch = new Touch({ identifier: 1, target: document.body, clientX: 0, clientY: 0 });
         document.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch], bubbles: true }));
     } catch (_) {}
-    // 直接移除节点，避免隐藏后残留状态导致交互异常
-    try { sidebar.remove(); } catch(_) { sidebar.style.display = 'none'; }
+    
     // 关闭时清理页面预留空间，但不改变固定偏好（下次仍按用户偏好恢复）
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
@@ -1156,13 +1253,26 @@ function hideSidebar() {
 
 function showSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
-    if (!sidebar) return;
+    if (!sidebar) {
+        // 如果侧边栏不存在，快速创建
+        quickInit();
+        return;
+    }
+    
     sidebar.classList.remove('collapsed');
     sidebar.style.display = 'block';
     sidebar.style.pointerEvents = 'auto';
+    
+    // 使用 requestAnimationFrame 确保丝滑过渡
+    requestAnimationFrame(() => {
+        sidebar.style.opacity = '1';
+        sidebar.style.transform = 'translateX(0)';
+    });
+    
     applySavedSidebarState(sidebar);
     const headerEl = document.querySelector('#transcript-sidebar .transcript-header');
     if (headerEl) headerEl.style.cursor = 'move';
+    
     // 确保滚动容器处于可滚动状态
     const content = document.getElementById('transcript-content');
     if (content) {
@@ -1178,6 +1288,9 @@ function showSidebar() {
             content.dataset.scrollHandlers = '1';
         }
     }
+    
+    console.log('[YouTube转录 DOM] 侧边栏已丝滑显示');
+    
     // 立即同步一次高亮和滚动
     blockAutoScrollUntil = 0;
     setTimeout(updateCurrentHighlight, 50);
@@ -1230,16 +1343,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.log('[YouTube转录 DOM] 侧边栏已隐藏');
                 sendResponse({ visible: false });
             } else {
-                // 为保险起见，移除并重新初始化
-                hideSidebar();
-                init();
-                console.log('[YouTube转录 DOM] 侧边栏已重建并显示');
+                // 立即显示侧边栏（不重新初始化，保持流畅）
+                showSidebar();
+                console.log('[YouTube转录 DOM] 侧边栏已显示');
                 sendResponse({ visible: true });
             }
         } else {
-            console.log('[YouTube转录 DOM] 侧边栏不存在，初始化...');
-            // 如果侧边栏不存在，创建它
-            init();
+            console.log('[YouTube转录 DOM] 侧边栏不存在，快速初始化...');
+            // 如果侧边栏不存在，立即创建并显示
+            quickInit();
             sendResponse({ visible: true });
         }
         
