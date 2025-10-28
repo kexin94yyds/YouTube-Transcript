@@ -188,9 +188,16 @@ async function fetchTranscriptFromDOM() {
                 // 提取章节信息
                 await extractChapters(transcriptPanel);
                 
-                // 等到字幕片段：优先用DOM变化捕捉并等待计数短暂稳定
-                const segments = await waitForTranscriptSegmentsUltra(transcriptPanel);
-                console.log('[YouTube转录 DOM] 找到字幕片段:', segments.length);
+                // 🔧 修复：使用 Ultra 方法等待字幕片段
+                let segments = await waitForTranscriptSegmentsUltra(transcriptPanel);
+                console.log('[YouTube转录 DOM] Ultra方法找到字幕片段:', segments.length);
+                
+                // 🔧 修复：如果 Ultra 方法失败（返回0个），使用备用 Fast 方法重试
+                if (!segments || segments.length === 0) {
+                    console.log('[YouTube转录 DOM] Ultra方法未找到字幕，尝试Fast备用方法...');
+                    segments = await waitForTranscriptSegmentsFast(transcriptPanel);
+                    console.log('[YouTube转录 DOM] Fast方法找到字幕片段:', segments.length);
+                }
                 
                 transcriptData = [];
                 
@@ -230,7 +237,21 @@ async function fetchTranscriptFromDOM() {
                         console.log('[YouTube转录 DOM] 触发布局重算');
                     });
                     
+                    // 保存标记：字幕加载成功
+                    sessionStorage.setItem('yt-transcript-loaded', 'true');
                     return;
+                } else {
+                    // 🔧 智能刷新：如果获取到0个字幕，且不是刷新后的重试，则自动刷新页面
+                    const hasRefreshed = sessionStorage.getItem('yt-transcript-refreshed');
+                    if (!hasRefreshed) {
+                        console.log('[YouTube转录 DOM] 未找到字幕片段，自动刷新页面...');
+                        sessionStorage.setItem('yt-transcript-refreshed', 'true');
+                        sessionStorage.setItem('yt-transcript-auto-open', 'true'); // 标记刷新后自动打开
+                        location.reload();
+                        return;
+                    } else {
+                        console.log('[YouTube转录 DOM] 刷新后仍未找到字幕，尝试备用方法...');
+                    }
                 }
             }
         }
@@ -489,10 +510,13 @@ async function waitForTranscriptPanelFast() {
 async function waitForTranscriptSegmentsFast(panel) {
     let segs = panel?.querySelectorAll('ytd-transcript-segment-renderer');
     if (segs && segs.length) return segs;
-    // 🚀 极致优化：减少间隔，更快找到字幕
-    segs = await waitForTranscriptSegments(panel, 10, 10); // 最快 ~100ms
+    // 🔧 修复第一次加载：增加等待次数，确保字幕能够完全渲染
+    segs = await waitForTranscriptSegments(panel, 10, 20); // ~200ms
     if (segs && segs.length) return segs;
-    return await waitForTranscriptSegments(panel, 40, 25); // 备份 ~1s
+    segs = await waitForTranscriptSegments(panel, 50, 40); // 再等 ~2s
+    if (segs && segs.length) return segs;
+    // 最后的备用等待
+    return await waitForTranscriptSegments(panel, 100, 30); // 再等 ~3s（总共最多5s+）
 }
 
 // Ultra 级：MutationObserver 捕捉出现，最低延迟；超时则回退
@@ -551,8 +575,8 @@ function waitForTranscriptSegmentsUltra(panel) {
         try { obs.observe(panel, { childList: true, subtree: true }); } catch(_) { /* ignore */ }
         // 初始检查
         check();
-        // 🚀 极致优化：最长等待减少到 400ms
-        setTimeout(() => done(getSegs()), 400);
+        // 🔧 修复：增加等待时间到 2000ms，确保第一次加载时字幕也能渲染完成
+        setTimeout(() => done(getSegs()), 2000);
     });
 }
 
@@ -1302,12 +1326,13 @@ function toggleSidebar() {
     hideSidebar();
 }
 
-// 初始化
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 1000));
-} else {
-    setTimeout(init, 1000);
-}
+// 🔧 移除自动初始化：不再在页面加载时自动初始化，只在用户点击时才初始化
+// 这样可以避免不必要的资源消耗，并且可以在需要时智能刷新页面
+// if (document.readyState === 'loading') {
+//     document.addEventListener('DOMContentLoaded', () => setTimeout(init, 1000));
+// } else {
+//     setTimeout(init, 1000);
+// }
 
 // 监听URL变化
 let lastUrl = location.href;
@@ -1315,10 +1340,17 @@ new MutationObserver(() => {
     const url = location.href;
     if (url !== lastUrl) {
         lastUrl = url;
+        console.log('[YouTube转录 DOM] URL 变化，清除刷新标记');
+        // 清除刷新标记
+        sessionStorage.removeItem('yt-transcript-refreshed');
+        sessionStorage.removeItem('yt-transcript-auto-open');
+        sessionStorage.removeItem('yt-transcript-loaded');
+        
+        // 移除旧的侧边栏
         if (url.includes('/watch')) {
             const existingSidebar = document.getElementById('transcript-sidebar');
             if (existingSidebar) existingSidebar.remove();
-            setTimeout(init, 2000);
+            // 不再自动初始化，只有用户点击时才初始化
         }
     }
 }).observe(document, { subtree: true, childList: true });
@@ -1379,4 +1411,18 @@ window.addEventListener('resize', () => {
     }
     // 固定模式下同步预留空间
     updatePinnedSpace();
+});
+
+// 🔧 智能刷新后自动打开：检查是否是刷新后需要自动打开侧边栏
+window.addEventListener('load', () => {
+    const shouldAutoOpen = sessionStorage.getItem('yt-transcript-auto-open');
+    if (shouldAutoOpen) {
+        console.log('[YouTube转录 DOM] 检测到刷新标记，自动打开侧边栏...');
+        // 清除标记
+        sessionStorage.removeItem('yt-transcript-auto-open');
+        // 延迟一下确保页面完全加载
+        setTimeout(() => {
+            quickInit();
+        }, 1000);
+    }
 });
