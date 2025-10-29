@@ -96,10 +96,23 @@ async function fetchTranscriptFromDOM() {
 
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
-            // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
+            
+            // 🔧 修复：先检查面板是否已经打开，如果是则先关闭再重新打开
+            // 这样可以确保加载的是当前视频的字幕，而不是旧视频的
             try {
                 const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
                 if (nativePanelPre) {
+                    const isOpen = nativePanelPre.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
+                    if (isOpen) {
+                        console.log('[YouTube转录 DOM] 检测到面板已打开（可能是旧视频），先关闭...');
+                        // 先点击关闭
+                        transcriptButton.click();
+                        // 等待关闭动画完成
+                        await new Promise(r => setTimeout(r, 300));
+                        console.log('[YouTube转录 DOM] 面板已关闭，重新打开...');
+                    }
+                    
+                    // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
                     nativePanelPre.style.opacity = '0';
                     nativePanelPre.style.pointerEvents = 'none';
                     nativePanelPre.style.transform = '';
@@ -120,9 +133,19 @@ async function fetchTranscriptFromDOM() {
                 // 提取章节信息
                 await extractChapters(transcriptPanel);
                 
-                // 等到字幕片段：优先用DOM变化捕捉并等待计数短暂稳定
-                const segments = await waitForTranscriptSegmentsUltra(transcriptPanel);
-                console.log('[YouTube转录 DOM] 找到字幕片段:', segments.length);
+                // 🚀 优化：检查是否是第一次加载还是刷新后加载
+                const hasRefreshed = sessionStorage.getItem('yt-transcript-refreshed');
+                
+                // 🔧 修复：使用 Ultra 方法等待字幕片段
+                let segments = await waitForTranscriptSegmentsUltra(transcriptPanel, hasRefreshed);
+                console.log('[YouTube转录 DOM] Ultra方法找到字幕片段:', segments.length);
+                
+                // 🔧 修复：如果 Ultra 方法失败（返回0个），使用备用 Fast 方法重试
+                if (!segments || segments.length === 0) {
+                    console.log('[YouTube转录 DOM] Ultra方法未找到字幕，尝试Fast备用方法...');
+                    segments = await waitForTranscriptSegmentsFast(transcriptPanel, hasRefreshed);
+                    console.log('[YouTube转录 DOM] Fast方法找到字幕片段:', segments.length);
+                }
                 
                 transcriptData = [];
                 
@@ -181,7 +204,22 @@ async function fetchTranscriptFromDOM() {
                         }, 300);
                     }, 100);
                     
+                    // 保存标记：字幕加载成功
+                    sessionStorage.setItem('yt-transcript-loaded', 'true');
                     return;
+                } else {
+                    // 🚀 优化加载策略：第一次给合理时间（~3.5s），失败则刷新
+                    // 刷新后给更充分时间（~8s），确保能加载完整字幕
+                    const hasRefreshed = sessionStorage.getItem('yt-transcript-refreshed');
+                    if (!hasRefreshed) {
+                        console.log('[YouTube转录 DOM] ⚡ 第一次未找到字幕（~3.5s），刷新页面重试...');
+                        sessionStorage.setItem('yt-transcript-refreshed', 'true');
+                        sessionStorage.setItem('yt-transcript-auto-open', 'true'); // 标记刷新后自动打开
+                        location.reload();
+                        return;
+                    } else {
+                        console.log('[YouTube转录 DOM] ❌ 刷新后仍未找到字幕，尝试备用方法...');
+                    }
                 }
             }
         }
@@ -431,12 +469,25 @@ async function waitForTranscriptPanelFast() {
     return await waitForTranscriptPanel(60, 35);        // 备份 ~2.1s 上限
 }
 
-async function waitForTranscriptSegmentsFast(panel) {
+async function waitForTranscriptSegmentsFast(panel, hasRefreshed) {
     let segs = panel?.querySelectorAll('ytd-transcript-segment-renderer');
     if (segs && segs.length) return segs;
-    segs = await waitForTranscriptSegments(panel, 12, 25); // 最快 ~300ms
-    if (segs && segs.length) return segs;
-    return await waitForTranscriptSegments(panel, 100, 50); // 备份更稳
+    
+    if (hasRefreshed) {
+        // 🔧 刷新后：给足够时间加载（总共最多5s+）
+        console.log('[YouTube转录 DOM] 刷新后加载，给足够时间...');
+        segs = await waitForTranscriptSegments(panel, 15, 30); // ~450ms
+        if (segs && segs.length) return segs;
+        segs = await waitForTranscriptSegments(panel, 50, 40); // 再等 ~2s
+        if (segs && segs.length) return segs;
+        return await waitForTranscriptSegments(panel, 60, 40); // 再等 ~2.4s（总共5s+）
+    } else {
+        // 🚀 第一次：给合理时间（总共最多2s），大部分情况能成功
+        console.log('[YouTube转录 DOM] 第一次加载，等待字幕渲染...');
+        segs = await waitForTranscriptSegments(panel, 15, 30); // ~450ms
+        if (segs && segs.length) return segs;
+        return await waitForTranscriptSegments(panel, 50, 30); // 再等 ~1.5s（总共2s）
+    }
 }
 
 // Ultra 级：MutationObserver 捕捉出现，最低延迟；超时则回退
@@ -459,7 +510,7 @@ async function waitForTranscriptPanelUltra() {
     return await waitForTranscriptPanelFast();
 }
 
-function waitForTranscriptSegmentsUltra(panel) {
+function waitForTranscriptSegmentsUltra(panel, hasRefreshed) {
     return new Promise((resolve) => {
         const getSegs = () => panel?.querySelectorAll('ytd-transcript-segment-renderer');
         let lastCount = -1;
@@ -481,8 +532,9 @@ function waitForTranscriptSegmentsUltra(panel) {
         try { obs.observe(panel, { childList: true, subtree: true }); } catch(_) { /* ignore */ }
         // 初始检查
         check();
-        // 最长等待 1500ms 后返回当前已加载的片段
-        setTimeout(() => done(getSegs()), 1500);
+        // 🚀 优化：第一次给合理时间（1500ms），刷新后给更充分时间（3000ms）
+        const timeout = hasRefreshed ? 3000 : 1500;
+        setTimeout(() => done(getSegs()), timeout);
     });
 }
 
@@ -1490,12 +1542,14 @@ function toggleSidebar() {
     hideSidebar();
 }
 
-// 初始化
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 1000));
-} else {
-    setTimeout(init, 1000);
-}
+// 🚀 性能优化：移除自动初始化，改为按需加载
+// 只有用户点击扩展图标（或刷新后自动恢复）时才初始化
+// 避免影响视频加载性能，防止卡顿
+// if (document.readyState === 'loading') {
+//     document.addEventListener('DOMContentLoaded', () => setTimeout(init, 1000));
+// } else {
+//     setTimeout(init, 1000);
+// }
 
 // 监听URL变化
 let lastUrl = location.href;
@@ -1503,10 +1557,35 @@ new MutationObserver(() => {
     const url = location.href;
     if (url !== lastUrl) {
         lastUrl = url;
+        console.log('[YouTube转录 DOM] URL 变化，清除刷新标记和旧数据');
+        // 清除刷新标记
+        sessionStorage.removeItem('yt-transcript-refreshed');
+        sessionStorage.removeItem('yt-transcript-auto-open');
+        sessionStorage.removeItem('yt-transcript-loaded');
+        
+        // 🔧 清除旧的字幕数据，避免显示上一个视频的字幕
+        transcriptData = [];
+        chapters = [];
+        currentActiveIndex = -1;
+        
+        // 🚀 性能优化：移除旧的侧边栏，但不自动初始化
+        // 让用户主动点击扩展图标来打开字幕，避免自动加载导致视频卡顿
         if (url.includes('/watch')) {
             const existingSidebar = document.getElementById('transcript-sidebar');
             if (existingSidebar) existingSidebar.remove();
-            setTimeout(init, 2000);
+            
+            // 🔧 修复：关闭YouTube原生的transcript面板，避免干扰下一次加载
+            try {
+                const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+                if (nativePanel && nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
+                    console.log('[YouTube转录 DOM] 关闭原生面板，避免干扰下一次加载');
+                    const closeBtn = nativePanel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i]');
+                    if (closeBtn) closeBtn.click();
+                }
+            } catch (_) {}
+            
+            // 不再自动初始化，只有用户点击时才初始化
+            // setTimeout(init, 2000);
         }
     }
 }).observe(document, { subtree: true, childList: true });
@@ -1568,4 +1647,18 @@ window.addEventListener('resize', () => {
     }
     // 固定模式下同步预留空间
     updatePinnedSpace();
+});
+
+// 🔧 智能刷新后自动打开：检查是否是刷新后需要自动打开侧边栏
+window.addEventListener('load', () => {
+    const shouldAutoOpen = sessionStorage.getItem('yt-transcript-auto-open');
+    if (shouldAutoOpen) {
+        console.log('[YouTube转录 DOM] 检测到刷新标记，自动打开侧边栏...');
+        // 清除标记
+        sessionStorage.removeItem('yt-transcript-auto-open');
+        // 延迟一下确保页面完全加载
+        setTimeout(() => {
+            init();
+        }, 1000);
+    }
 });
