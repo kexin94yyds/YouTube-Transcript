@@ -288,7 +288,328 @@ function hideSidebar() {
 
 ---
 
-## 问题 #2: [预留位置]
+## 问题 #2: 加载字幕时出现右侧空隙，字幕加载完成后视频不自动调整
+
+**日期**: 2025-10-28  
+**状态**: ✅ 已解决  
+**严重程度**: 高
+
+### 问题描述
+
+在加载字幕过程中，出现以下用户体验问题：
+
+1. **加载字幕期间出现空隙**：点击扩展图标后，显示"正在加载字幕..."时，视频右侧出现大片黑色空隙
+2. **字幕加载后视频不自动调整**：字幕加载完成后，视频仍然保持较小尺寸，右侧空隙依然存在
+3. **需要手动操作才能修复**：必须退出侧边栏再重新打开，或者调整浏览器窗口大小，视频才能正确填充满屏
+
+**期望行为**：
+- 加载字幕期间，侧边栏浮动显示，视频保持满屏，不出现空隙
+- 字幕加载完成后，视频立即自动调整到正确大小，与侧边栏紧密贴合
+
+### 根本原因
+
+#### 1. 固定状态应用时机过早
+
+在创建侧边栏时立即应用固定状态：
+
+```javascript
+// 问题代码
+function createSidebar() {
+    // ...
+    setPinned(true);  // ❌ 立即应用固定状态
+    
+    requestAnimationFrame(() => {
+        applyPinnedState();  // ❌ 立即挤压视频
+        // 侧边栏滑入动画
+    });
+}
+```
+
+**问题**：
+- `applyPinnedState()` 会立即添加 `yt-transcript-pinned` 类
+- CSS 规则立即生效，为侧边栏预留空间（`margin-right: 300px`）
+- 但此时字幕还在加载中，侧边栏内容为空
+- 导致右侧出现大片黑色空隙
+
+#### 2. 字幕加载完成后缺少布局更新触发
+
+字幕加载完成后的处理代码：
+
+```javascript
+// 问题代码
+if (transcriptData.length > 0) {
+    renderTranscript();
+    closeNativeTranscript(transcriptPanel);
+    
+    setTimeout(() => {
+        applyPinnedState();
+        updatePinnedSpace();
+        // ❌ 缺少触发 YouTube 重新计算布局的代码
+    }, 100);
+}
+```
+
+**问题**：
+- 虽然调用了 `updatePinnedSpace()`，但没有触发 `resize` 事件
+- YouTube 播放器不知道需要重新计算视频尺寸
+- 视频保持原来的小尺寸，不会自动填充满屏
+
+#### 3. CSS 变量更新后 YouTube 未响应
+
+`updatePinnedSpace()` 只更新了 CSS 变量：
+
+```javascript
+// 问题代码
+function updatePinnedSpace() {
+    document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
+    // ❌ YouTube 不会自动监听 CSS 变量变化
+}
+```
+
+**问题**：YouTube 播放器不会主动监听 CSS 变量的变化，需要通过事件通知。
+
+### 解决方案
+
+#### 方案 1: 延迟应用固定状态，避免加载期间出现空隙
+
+**文件**: `content-dom.js` - `createSidebar()` 函数
+
+**修改内容**：
+```javascript
+function createSidebar() {
+    // ...
+    
+    // 🔧 优化：先保存固定状态，但暂不应用到页面
+    try { localStorage.setItem('transcriptPinned', '1'); } catch (_) {}
+    
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            // 1. 暂不应用固定状态，避免"正在加载字幕"时出现空隙
+            // applyPinnedState();  // ❌ 注释掉
+            
+            // 2. 让侧边栏滑入（浮动显示，不挤压视频）
+            sidebar.style.transform = 'translateX(0)';
+            sidebar.style.opacity = '1';
+        });
+    });
+}
+```
+
+**关键点**：
+- 侧边栏以浮动方式滑入，不挤压视频
+- 视频在加载字幕期间保持满屏
+- 用户体验更流畅，无明显空隙
+
+#### 方案 2: 字幕加载完成后立即应用固定状态并触发布局更新
+
+**文件**: `content-dom.js` - `fetchTranscriptFromDOM()` 函数
+
+**修改内容**：
+```javascript
+if (transcriptData.length > 0) {
+    renderTranscript();
+    closeNativeTranscript(transcriptPanel);
+    
+    // 🔧 关键修复：字幕加载完成后，强制触发布局更新
+    setTimeout(() => {
+        applyPinnedState();
+        updatePinnedSpace();
+        
+        // 🚀 多次触发 resize 事件，确保 YouTube 完全响应
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+        
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+        
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 300);
+    }, 100);
+}
+```
+
+**关键点**：
+- 字幕加载完成后才应用固定状态
+- 连续触发 3 次 `resize` 事件，间隔 0ms、100ms、300ms
+- 确保 YouTube 完全响应布局变化
+- 视频立即自动调整到正确大小
+
+#### 方案 3: 增强 updatePinnedSpace() 函数，强制触发布局重算
+
+**文件**: `content-dom.js` - `updatePinnedSpace()` 函数
+
+**修改内容**：
+```javascript
+function updatePinnedSpace() {
+    const sidebar = document.getElementById('transcript-sidebar');
+    if (!sidebar) return;
+    if (!isPinned()) return;
+    const w = Math.max(280, Math.min(900, rect.width || 300));
+    document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
+    
+    // 🔧 强制 YouTube 播放器重新计算尺寸
+    try {
+        const player = document.querySelector('#movie_player');
+        if (player && typeof player.updateVideoElementSize === 'function') {
+            player.updateVideoElementSize();
+        }
+        
+        const video = document.querySelector('video');
+        if (video) {
+            video.style.opacity = '0.9999';
+            requestAnimationFrame(() => {
+                video.style.opacity = '1';
+            });
+        }
+        
+        // 触发窗口 resize 事件
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+    } catch (e) {}
+}
+```
+
+**关键点**：
+- 调用 YouTube 播放器的内部方法
+- 通过样式微调触发浏览器重排
+- 触发窗口 resize 事件通知 YouTube
+
+#### 方案 4: 精确控制主容器宽度，消除中间空隙
+
+**文件**: `content-dom.js` - `ensurePinStyleElement()` 函数
+
+**修改内容**：
+```css
+/* 🔧 关键：控制主容器宽度，填充剩余空间，消除中间空隙 */
+html.yt-transcript-pinned ytd-watch-flexy #primary {
+  max-width: calc(100vw - var(--sidebar-width)) !important;
+  width: calc(100vw - var(--sidebar-width)) !important;
+}
+
+/* 移除可能造成空隙的 margin 和 padding */
+html.yt-transcript-pinned #primary,
+html.yt-transcript-pinned #columns,
+html.yt-transcript-pinned #center,
+html.yt-transcript-pinned #player-container-outer {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* 🔧 直接控制视频播放器元素 */
+html.yt-transcript-pinned #player-container,
+html.yt-transcript-pinned #movie_player,
+html.yt-transcript-pinned .html5-video-container,
+html.yt-transcript-pinned .html5-video-player {
+  max-width: calc(100vw - var(--sidebar-width)) !important;
+  width: 100% !important;
+}
+```
+
+**关键点**：
+- 精确控制容器宽度，确保填充剩余空间
+- 移除所有可能造成空隙的边距
+- 直接控制视频播放器元素，确保响应
+
+### 时序流程对比
+
+#### 优化前（有问题）
+```
+1. 点击图标
+   ↓
+2. 创建侧边栏 + 立即应用固定状态
+   → 视频被挤压，右侧预留空间（空隙出现）
+   ↓
+3. 显示"正在加载字幕..."
+   → 空隙依然存在
+   ↓
+4. 字幕加载完成
+   → 更新 CSS 变量，但未触发 resize
+   → 视频不自动调整（空隙依然存在）
+   ↓
+5. 用户手动退出/重新进入或调整窗口
+   → 视频才正确显示
+```
+
+#### 优化后（完美）
+```
+1. 点击图标
+   ↓
+2. 创建侧边栏（浮动显示，不应用固定状态）
+   → 视频保持满屏（无空隙）
+   ↓
+3. 显示"正在加载字幕..."
+   → 视频保持满屏（无空隙）
+   ↓
+4. 字幕加载完成
+   → 应用固定状态
+   → 连续触发 3 次 resize 事件
+   → 视频立即自动调整到正确大小
+   → 与侧边栏紧密贴合（无空隙）
+```
+
+### 验证方法
+
+完成修改后，通过以下步骤验证问题是否解决：
+
+1. **加载过程测试**
+   - 点击扩展图标
+   - ✅ 验证"正在加载字幕..."期间，视频是否保持满屏，无右侧空隙
+
+2. **自动调整测试**
+   - 等待字幕加载完成
+   - ✅ 验证视频是否立即自动调整到正确大小
+   - ✅ 验证视频与侧边栏之间无空隙
+
+3. **多次测试**
+   - 关闭侧边栏后再次打开
+   - ✅ 验证行为一致，无需手动操作
+
+4. **不同视频测试**
+   - 切换到不同的 YouTube 视频
+   - ✅ 验证在各种视频下都能正常工作
+
+5. **控制台日志验证**
+   ```
+   [YouTube转录 DOM] 侧边栏丝滑入场动画已触发（延迟应用固定状态）
+   [YouTube转录 DOM] 字幕加载完成，重新确保固定状态
+   [YouTube转录 DOM] 触发第1次 resize
+   [YouTube转录 DOM] 触发第2次 resize
+   [YouTube转录 DOM] 触发第3次 resize
+   ```
+
+### 相关提交
+
+- **完整修复**: `2d36548` - fix: 完美解决视频与侧边栏实时联动问题
+- **基础修复**: `a6d3d68` - fix: 修复视频与侧边栏未实时自适应联动的问题
+
+### 经验教训
+
+1. **时序很重要**：在异步加载场景中，过早应用布局会导致不良的中间状态被用户看到
+
+2. **事件触发要充分**：对于复杂的第三方页面（如 YouTube），单次事件可能不够，需要多次触发并延迟重试
+
+3. **CSS 变量不会自动通知**：修改 CSS 变量后，需要主动触发事件通知相关组件重新计算
+
+4. **用户体验优先**：宁可让侧边栏浮动显示（不影响视频），也不要在加载期间出现空隙
+
+5. **多层保障机制**：
+   - 调用 YouTube 内部方法（`updateVideoElementSize`）
+   - 触发浏览器重排（样式微调）
+   - 触发窗口事件（`resize`）
+   - 多次延迟触发
+   
+   多管齐下确保成功率
+
+6. **精确的 CSS 控制**：需要同时控制容器和视频元素，确保约束能传递到最终的渲染层
+
+---
+
+## 问题 #3: [预留位置]
 
 待补充...
 
