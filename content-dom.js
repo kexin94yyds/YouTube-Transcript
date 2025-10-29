@@ -158,12 +158,27 @@ async function fetchTranscriptFromDOM() {
                     // 立即关闭原生面板，避免占位
                     closeNativeTranscript(transcriptPanel);
                     
-                    // 关键修复：关闭原生面板后，强制重新应用固定状态
-                    // 因为YouTube可能会在关闭面板时重置布局
+                    // 🔧 关键修复：字幕加载完成后，强制触发布局更新，让视频立即填充满屏
                     setTimeout(() => {
                         console.log('[YouTube转录 DOM] 字幕加载完成，重新确保固定状态');
                         applyPinnedState();
                         updatePinnedSpace();
+                        
+                        // 🚀 多次触发 resize 事件，确保 YouTube 完全响应
+                        requestAnimationFrame(() => {
+                            window.dispatchEvent(new Event('resize'));
+                            console.log('[YouTube转录 DOM] 触发第1次 resize');
+                        });
+                        
+                        setTimeout(() => {
+                            window.dispatchEvent(new Event('resize'));
+                            console.log('[YouTube转录 DOM] 触发第2次 resize');
+                        }, 100);
+                        
+                        setTimeout(() => {
+                            window.dispatchEvent(new Event('resize'));
+                            console.log('[YouTube转录 DOM] 触发第3次 resize');
+                        }, 300);
                     }, 100);
                     
                     return;
@@ -621,6 +636,9 @@ function createSidebar() {
     const pinBtn = document.getElementById('pin-sidebar');
     if (pinBtn) {
         pinBtn.addEventListener('click', () => setPinned(!isPinned()));
+        // 🔧 设置 pin 按钮的初始状态为激活（因为默认是固定的）
+        pinBtn.classList.add('active');
+        pinBtn.title = '取消固定';
     }
     const copyBtn = document.getElementById('copy-transcript');
     if (copyBtn) {
@@ -648,23 +666,24 @@ function createSidebar() {
     sidebar.style.width = targetWidth + 'px';
     sidebar.style.right = '0px';
     
-    // 始终默认固定在右侧
-    setPinned(true);
+    // 🔧 优化：先设置固定状态（保存到 localStorage），但暂不应用到页面
+    // 等字幕加载完成后再应用，避免加载期间出现空隙
+    try { localStorage.setItem('transcriptPinned', '1'); } catch (_) {}
     
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     // 先让浏览器完成布局计算
     requestAnimationFrame(() => {
         // 再下一帧开始动画
         requestAnimationFrame(() => {
-            // 1. 先应用固定状态，让页面布局开始调整
-            applyPinnedState();
+            // 1. 暂不应用固定状态，避免"正在加载字幕"时出现空隙
+            // applyPinnedState();  // ❌ 注释掉，改为在字幕加载完成后应用
             
-            // 2. 同时让侧边栏滑入
+            // 2. 让侧边栏滑入（但不挤压视频）
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
             sidebar.style.transform = 'translateX(0)';
             sidebar.style.opacity = '1';
             
-            console.log('[YouTube转录 DOM] 侧边栏丝滑入场动画已触发');
+            console.log('[YouTube转录 DOM] 侧边栏丝滑入场动画已触发（延迟应用固定状态）');
             
             // 3. 动画完成后清理transition，避免影响后续操作
             setTimeout(() => {
@@ -773,12 +792,33 @@ function ensurePinStyleElement() {
         margin-right: 0 !important;
         justify-content: flex-start !important;
       }
+      /* 🔧 关键：控制主容器宽度，填充剩余空间，消除中间空隙 */
+      html.yt-transcript-pinned ytd-watch-flexy #primary {
+        max-width: calc(100vw - var(--sidebar-width)) !important;
+        width: calc(100vw - var(--sidebar-width)) !important;
+      }
+      
       /* 一些页面变体使用外层容器控制对齐，统一贴左 */
       html.yt-transcript-pinned #primary,
       html.yt-transcript-pinned #columns,
       html.yt-transcript-pinned #center,
       html.yt-transcript-pinned #player-container-outer {
         margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-right: 0 !important;
+      }
+      
+      /* 🔧 关键：直接控制视频播放器元素，确保视频实时自适应 */
+      html.yt-transcript-pinned #player-container,
+      html.yt-transcript-pinned #movie_player,
+      html.yt-transcript-pinned .html5-video-container,
+      html.yt-transcript-pinned .html5-video-player {
+        max-width: calc(100vw - var(--sidebar-width)) !important;
+        width: 100% !important;
+      }
+      html.yt-transcript-pinned video {
+        max-width: 100% !important;
+        width: 100% !important;
       }
       
       /* 🔧 关键：直接控制视频播放器元素，确保视频实时自适应 */
