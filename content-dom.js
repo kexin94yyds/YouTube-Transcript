@@ -74,6 +74,8 @@ function init() {
 async function fetchTranscriptFromDOM() {
     try {
         console.log('[YouTube转录 DOM] 开始从DOM获取字幕...');
+        // 🔧 关键修复：设置标记，告诉监控器不要干扰
+        isLoadingTranscript = true;
         showLoadingMessage('正在获取字幕...');
 
         // 优先：从 ytInitialPlayerResponse 提取章节信息
@@ -97,22 +99,23 @@ async function fetchTranscriptFromDOM() {
         if (transcriptButton) {
             console.log('[YouTube转录 DOM] 找到transcript按钮，尝试点击...');
             
-            // 🔧 修复：先检查面板是否已经打开，如果是则先关闭再重新打开
-            // 这样可以确保加载的是当前视频的字幕，而不是旧视频的
+            // 🔧 强制重置面板：无论什么状态，都先关闭再打开
+            // 这样可以确保100%加载当前视频的字幕，避免旧视频字幕残留
             try {
                 const nativePanelPre = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
                 if (nativePanelPre) {
-                    const isOpen = nativePanelPre.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
-                    if (isOpen) {
-                        console.log('[YouTube转录 DOM] 检测到面板已打开（可能是旧视频），先关闭...');
-                        // 先点击关闭
-                        transcriptButton.click();
-                        // 等待关闭动画完成
-                        await new Promise(r => setTimeout(r, 300));
-                        console.log('[YouTube转录 DOM] 面板已关闭，重新打开...');
+                    const visibility = nativePanelPre.getAttribute('visibility');
+                    
+                    // 🚀 关键优化：如果面板存在（无论打开还是关闭），都先强制关闭
+                    // 这样YouTube会清理旧的transcript数据
+                    if (visibility === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED' || visibility === 'ENGAGEMENT_PANEL_VISIBILITY_COLLAPSED') {
+                        console.log('[YouTube转录 DOM] 检测到面板存在（visibility=' + visibility + '），强制关闭以清理旧数据...');
+                        transcriptButton.click(); // 第一次点击：关闭
+                        await new Promise(r => setTimeout(r, 400)); // 等待YouTube完全关闭和清理
+                        console.log('[YouTube转录 DOM] 面板已关闭，现在重新打开加载新字幕...');
                     }
                     
-                    // 点击前确保面板不可见，减少闪现时间（不改变尺寸/位置，以保证其正常渲染）
+                    // 点击前确保面板不可见，减少闪现时间
                     nativePanelPre.style.opacity = '0';
                     nativePanelPre.style.pointerEvents = 'none';
                     nativePanelPre.style.transform = '';
@@ -122,7 +125,8 @@ async function fetchTranscriptFromDOM() {
                     nativePanelPre.style.overflow = '';
                 }
             } catch (_) {}
-            transcriptButton.click();
+            
+            transcriptButton.click(); // 最终点击：打开并加载当前视频字幕
             
             // 尽快等待面板出现：优先用DOM变化捕捉，其次走快速轮询
             const transcriptPanel = await waitForTranscriptPanelUltra();
@@ -206,6 +210,9 @@ async function fetchTranscriptFromDOM() {
                     
                     // 保存标记：字幕加载成功
                     sessionStorage.setItem('yt-transcript-loaded', 'true');
+                    
+                    // 🔧 关键修复：字幕加载完成，恢复监控
+                    isLoadingTranscript = false;
                     return;
                 } else {
                     // 🚀 优化加载策略：第一次给合理时间（~3.5s），失败则刷新
@@ -231,6 +238,9 @@ async function fetchTranscriptFromDOM() {
     } catch (error) {
         console.error('[YouTube转录 DOM] 获取失败:', error);
         showErrorMessage('无法获取字幕');
+    } finally {
+        // 🔧 确保无论成功失败都恢复监控
+        isLoadingTranscript = false;
     }
 }
 
@@ -321,11 +331,18 @@ function closeNativeTranscript(panel) {
 
 // 持续隐藏原生transcript面板
 let nativeTranscriptObserver = null;
+let isLoadingTranscript = false; // 🔧 新增：标记是否正在加载字幕
+
 function keepNativeTranscriptHidden() {
     // 避免重复创建 observer
     if (nativeTranscriptObserver) return;
     
     nativeTranscriptObserver = new MutationObserver(() => {
+        // 🔧 关键修复：如果正在加载字幕，不要干扰原生面板
+        if (isLoadingTranscript) {
+            return;
+        }
+        
         const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
         if (nativePanel) {
             const isVisible = nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED';
@@ -1574,15 +1591,9 @@ new MutationObserver(() => {
             const existingSidebar = document.getElementById('transcript-sidebar');
             if (existingSidebar) existingSidebar.remove();
             
-            // 🔧 修复：关闭YouTube原生的transcript面板，避免干扰下一次加载
-            try {
-                const nativePanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-                if (nativePanel && nativePanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
-                    console.log('[YouTube转录 DOM] 关闭原生面板，避免干扰下一次加载');
-                    const closeBtn = nativePanel.querySelector('button[aria-label*="close" i], button[aria-label*="关闭" i]');
-                    if (closeBtn) closeBtn.click();
-                }
-            } catch (_) {}
+            // ⚠️ 不在这里关闭原生面板！
+            // 因为YouTube需要时间处理，过早关闭会导致下次打开时状态混乱
+            // 改为在用户点击扩展时强制重置面板状态
             
             // 不再自动初始化，只有用户点击时才初始化
             // setTimeout(init, 2000);
