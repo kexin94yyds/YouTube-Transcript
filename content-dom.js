@@ -781,6 +781,19 @@ function ensurePinStyleElement() {
         margin-left: 0 !important;
       }
       
+      /* 🔧 关键：直接控制视频播放器元素，确保视频实时自适应 */
+      html.yt-transcript-pinned #player-container,
+      html.yt-transcript-pinned #movie_player,
+      html.yt-transcript-pinned .html5-video-container,
+      html.yt-transcript-pinned .html5-video-player {
+        max-width: calc(100vw - var(--sidebar-width)) !important;
+        width: 100% !important;
+      }
+      html.yt-transcript-pinned video {
+        max-width: 100% !important;
+        width: 100% !important;
+      }
+      
       /* 取消固定时恢复 */
       html:not(.yt-transcript-pinned) body {
         margin-right: 0 !important;
@@ -836,6 +849,31 @@ function updatePinnedSpace() {
     const rect = sidebar.getBoundingClientRect();
     const w = Math.max(280, Math.min(900, rect.width || parseInt(sidebar.style.width || '300', 10)));
     document.documentElement.style.setProperty('--yt-transcript-sidebar-width', w + 'px');
+    
+    // 🔧 强制 YouTube 播放器重新计算尺寸
+    try {
+        const player = document.querySelector('#movie_player');
+        if (player && typeof player.updateVideoElementSize === 'function') {
+            player.updateVideoElementSize();
+        }
+        
+        // 触发视频容器的尺寸重算
+        const video = document.querySelector('video');
+        if (video) {
+            // 通过微小的样式变化触发重排
+            video.style.opacity = '0.9999';
+            requestAnimationFrame(() => {
+                video.style.opacity = '1';
+            });
+        }
+        
+        // 触发窗口 resize 事件，让 YouTube 重新计算布局
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+    } catch (e) {
+        // 忽略错误
+    }
 }
 
 // 禁用布局过渡动画（拖动时用，实现实时挤压效果）
@@ -1293,6 +1331,15 @@ function hideSidebar() {
     // 第二步：强制设置body margin为0（使用!important级别的内联样式）
     document.body.style.setProperty('margin-right', '0', 'important');
     
+    // 🔧 新增：触发布局更新，让视频立即恢复满屏
+    requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+        
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+    });
+    
     // 第三步：启动侧边栏滑出动画
     sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
     sidebar.style.transform = 'translateX(100%)';
@@ -1326,7 +1373,7 @@ function showSidebar() {
     console.log('[YouTube转录 DOM] 开始显示侧边栏，启动丝滑动画...');
     
     sidebar.classList.remove('collapsed');
-    sidebar.style.display = 'block';
+    sidebar.style.display = 'flex';  // 使用 flex 而不是 block，确保内部布局正确
     sidebar.style.pointerEvents = 'auto';
     
     // 恢复尺寸设置
@@ -1366,6 +1413,17 @@ function showSidebar() {
         requestAnimationFrame(() => {
             // 1. 应用固定状态，让页面布局开始调整
             applyPinnedState();
+            
+            // 🔧 新增：触发布局更新，让视频立即自适应侧边栏
+            requestAnimationFrame(() => {
+                updatePinnedSpace();
+                window.dispatchEvent(new Event('resize'));
+                
+                // 再次触发确保 YouTube 完全响应
+                setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                }, 100);
+            });
             
             // 2. 同时让侧边栏滑入
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
