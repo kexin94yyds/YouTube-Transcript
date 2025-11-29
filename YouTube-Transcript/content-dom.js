@@ -1571,27 +1571,30 @@ function hideSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
     if (!sidebar) return;
     
-    console.log('[YouTube转录 DOM] 🚀 关闭侧边栏（简化版）');
+    console.log('[YouTube转录 DOM] 🚀 关闭侧边栏');
     
     // 清除之前的定时器
     clearAllCleanupTimers();
     
-    // 第一步：立即清除所有固定模式相关的样式
+    // 第一步：立即设置为非固定状态，更新 localStorage
+    try { localStorage.setItem('transcriptPinned', '0'); } catch (_) {}
+    
+    // 第二步：立即清除所有固定模式相关的样式
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
     
-    // 第二步：强制设置body margin为0
+    // 第三步：强制设置body margin为0（使用!important级别的内联样式）
     document.body.style.setProperty('margin-right', '0', 'important');
     
-    // 🔧 关键：强制 YouTube 播放器重新计算布局
-    forceYouTubeLayoutUpdate();
+    // 第四步：强制 YouTube 播放器重新计算布局，让视频立即恢复满屏
+    forceYouTubeLayoutRestore();
     
-    // 第三步：启动侧边栏滑出动画
+    // 第五步：启动侧边栏滑出动画
     sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
     sidebar.style.transform = 'translateX(100%)';
     sidebar.style.opacity = '0';
     
-    // 第四步：动画完成后移除侧边栏
+    // 第六步：动画完成后移除侧边栏
     setTimeout(() => {
         try {
             sidebar.remove();
@@ -1600,26 +1603,25 @@ function hideSidebar() {
             sidebar.style.display = 'none';
         }
         
-        // 🔧 侧边栏移除后再次触发布局更新
-        forceYouTubeLayoutUpdate();
+        // 侧边栏移除后再次触发布局更新
+        forceYouTubeLayoutRestore();
     }, 450);
     
-    // 第五步：清理完成后移除内联样式，让页面恢复正常
+    // 第七步：清理完成后移除内联样式，让页面恢复正常
     setTimeout(() => {
         const currentSidebar = document.getElementById('transcript-sidebar');
         if (!currentSidebar) {
             // 只有确认没有新侧边栏时才清理
             document.body.style.removeProperty('margin-right');
-            
-            // 🔧 最后一次强制布局更新，确保视频完全填满
-            forceYouTubeLayoutUpdate();
+            // 最后一次强制布局更新
+            forceYouTubeLayoutRestore();
             console.log('[YouTube转录 DOM] ✅ 视频已恢复正常大小');
         }
     }, 500);
 }
 
 // 🔧 强制 YouTube 播放器重新计算布局，让视频自适应屏幕
-function forceYouTubeLayoutUpdate() {
+function forceYouTubeLayoutRestore() {
     try {
         // 1. 触发 window resize 事件
         window.dispatchEvent(new Event('resize'));
