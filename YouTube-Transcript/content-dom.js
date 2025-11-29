@@ -848,15 +848,27 @@ function ensurePinStyleElement() {
         transition: margin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
+      /* 🔧 关键：让整个页面内容贴左，移除左侧空白 */
+      html.yt-transcript-pinned ytd-app {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+      }
+      
       /* 让播放器贴左，不留中间黑边（仅在固定模式下生效） */
       html.yt-transcript-pinned ytd-watch-flexy {
         width: 100% !important;
         max-width: 100% !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
       }
+      
       html.yt-transcript-pinned ytd-watch-flexy #columns {
         gap: 0 !important;
         column-gap: 0 !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
       }
+      
       /* 移除右侧推荐/次要列，避免占位造成中间黑块 */
       html.yt-transcript-pinned ytd-watch-flexy #secondary {
         display: none !important;
@@ -864,27 +876,42 @@ function ensurePinStyleElement() {
         max-width: 0 !important;
         flex: 0 0 0 !important;
       }
+      
+      /* 🔧 关键：移除所有左侧边距和内边距 */
       html.yt-transcript-pinned ytd-watch-flexy #player-theater-container,
       html.yt-transcript-pinned ytd-watch-flexy #player-wide-container,
       html.yt-transcript-pinned ytd-watch-flexy #player-container,
       html.yt-transcript-pinned ytd-watch-flexy #player {
         margin-left: 0 !important;
         margin-right: 0 !important;
+        padding-left: 0 !important;
         justify-content: flex-start !important;
       }
+      
       /* 🔧 关键：控制主容器宽度，填充剩余空间，消除中间空隙 */
       html.yt-transcript-pinned ytd-watch-flexy #primary {
         max-width: calc(100vw - var(--sidebar-width)) !important;
         width: calc(100vw - var(--sidebar-width)) !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+      }
+      
+      /* 🔧 关键：移除 primary-inner 的左侧边距 */
+      html.yt-transcript-pinned ytd-watch-flexy #primary-inner {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+        max-width: 100% !important;
       }
       
       /* 一些页面变体使用外层容器控制对齐，统一贴左 */
       html.yt-transcript-pinned #primary,
       html.yt-transcript-pinned #columns,
       html.yt-transcript-pinned #center,
-      html.yt-transcript-pinned #player-container-outer {
+      html.yt-transcript-pinned #player-container-outer,
+      html.yt-transcript-pinned #full-bleed-container {
         margin-left: 0 !important;
         margin-right: 0 !important;
+        padding-left: 0 !important;
         padding-right: 0 !important;
       }
       
@@ -895,23 +922,29 @@ function ensurePinStyleElement() {
       html.yt-transcript-pinned .html5-video-player {
         max-width: calc(100vw - var(--sidebar-width)) !important;
         width: 100% !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
       }
+      
       html.yt-transcript-pinned video {
         max-width: 100% !important;
         width: 100% !important;
       }
       
-      /* 🔧 关键：直接控制视频播放器元素，确保视频实时自适应 */
-      html.yt-transcript-pinned #player-container,
-      html.yt-transcript-pinned #movie_player,
-      html.yt-transcript-pinned .html5-video-container,
-      html.yt-transcript-pinned .html5-video-player {
-        max-width: calc(100vw - var(--sidebar-width)) !important;
-        width: 100% !important;
+      /* 🔧 修复：隐藏左侧导航栏的占位空间 */
+      html.yt-transcript-pinned ytd-mini-guide-renderer {
+        width: 0 !important;
+        min-width: 0 !important;
       }
-      html.yt-transcript-pinned video {
-        max-width: 100% !important;
-        width: 100% !important;
+      
+      html.yt-transcript-pinned #guide-inner-content {
+        padding: 0 !important;
+      }
+      
+      /* 🔧 移除页面左侧的固定边距 */
+      html.yt-transcript-pinned ytd-page-manager {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
       }
       
       /* 取消固定时恢复 */
