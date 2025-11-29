@@ -1580,17 +1580,11 @@ function hideSidebar() {
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
     
-    // 第二步：强制设置body margin为0（使用!important级别的内联样式）
+    // 第二步：强制设置body margin为0
     document.body.style.setProperty('margin-right', '0', 'important');
     
-    // 🔧 新增：触发布局更新，让视频立即恢复满屏
-    requestAnimationFrame(() => {
-        window.dispatchEvent(new Event('resize'));
-        
-        setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
-    });
+    // 🔧 关键：强制 YouTube 播放器重新计算布局
+    forceYouTubeLayoutUpdate();
     
     // 第三步：启动侧边栏滑出动画
     sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
@@ -1605,6 +1599,9 @@ function hideSidebar() {
         } catch(_) {
             sidebar.style.display = 'none';
         }
+        
+        // 🔧 侧边栏移除后再次触发布局更新
+        forceYouTubeLayoutUpdate();
     }, 450);
     
     // 第五步：清理完成后移除内联样式，让页面恢复正常
@@ -1613,9 +1610,71 @@ function hideSidebar() {
         if (!currentSidebar) {
             // 只有确认没有新侧边栏时才清理
             document.body.style.removeProperty('margin-right');
+            
+            // 🔧 最后一次强制布局更新，确保视频完全填满
+            forceYouTubeLayoutUpdate();
             console.log('[YouTube转录 DOM] ✅ 视频已恢复正常大小');
         }
     }, 500);
+}
+
+// 🔧 强制 YouTube 播放器重新计算布局，让视频自适应屏幕
+function forceYouTubeLayoutUpdate() {
+    try {
+        // 1. 触发 window resize 事件
+        window.dispatchEvent(new Event('resize'));
+        
+        // 2. 强制 YouTube 播放器更新尺寸
+        const player = document.querySelector('#movie_player');
+        if (player) {
+            if (typeof player.setSize === 'function') {
+                // 获取当前容器尺寸
+                const container = player.parentElement;
+                if (container) {
+                    player.setSize(container.clientWidth, container.clientHeight);
+                }
+            }
+            if (typeof player.updateVideoElementSize === 'function') {
+                player.updateVideoElementSize();
+            }
+        }
+        
+        // 3. 移除可能残留的宽度限制样式
+        const elementsToReset = [
+            '#primary',
+            '#columns',
+            '#player-container',
+            '#movie_player',
+            '.html5-video-container',
+            '.html5-video-player',
+            'video'
+        ];
+        
+        elementsToReset.forEach(selector => {
+            const el = document.querySelector(selector);
+            if (el) {
+                el.style.maxWidth = '';
+                el.style.width = '';
+            }
+        });
+        
+        // 4. 多次触发 resize 确保 YouTube 响应
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 50);
+        
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 150);
+        
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 300);
+        
+        console.log('[YouTube转录 DOM] 🔄 强制触发布局更新');
+    } catch (e) {
+        console.error('[YouTube转录 DOM] 布局更新失败:', e);
+    }
 }
 
 function showSidebar() {
