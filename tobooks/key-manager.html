@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>私钥管理系统</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        /* 允许文本选中/复制 */
+        html, body, * {
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .key-groups {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .key-group {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            background: #fafafa;
+        }
+        
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .group-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .group-count {
+            background: #007acc;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.8em;
+        }
+        
+        .key-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            padding: 10px;
+            background: white;
+        }
+        
+        .key-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .key-item:last-child {
+            border-bottom: none;
+        }
+        
+        .key-name {
+            font-family: monospace;
+            color: #666;
+        }
+        
+        .key-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.2s;
+        }
+        
+        .btn-copy {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-copy:hover {
+            background: #218838;
+        }
+        
+        .btn-download {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-download:hover {
+            background: #0056b3;
+        }
+        
+        .btn-view {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-view:hover {
+            background: #e0a800;
+        }
+        
+        .tools {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        
+        .tools h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .tool-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-tool {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        
+        .btn-generate {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .btn-generate:hover {
+            background: #138496;
+        }
+        
+        .btn-package {
+            background: #6f42c1;
+            color: white;
+        }
+        
+        .btn-package:hover {
+            background: #5a32a3;
+        }
+        
+        .btn-export {
+            background: #fd7e14;
+            color: white;
+        }
+        
+        .btn-export:hover {
+            background: #e8681b;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .close {
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .key-content {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .copy-success {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .stats {
+                grid-template-columns: 1fr;
+            }
+            
+            .key-groups {
+                grid-template-columns: 1fr;
+            }
+            
+            .tool-buttons {
+                flex-direction: column;
+            }
+            
+            .btn-tool {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 私钥管理系统</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="total-keys">170</div>
+                <div class="stat-label">总私钥数量</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="premium-count">20</div>
+                <div class="stat-label">高级用户私钥</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="standard-count">50</div>
+                <div class="stat-label">标准用户私钥</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="trial-count">100</div>
+                <div class="stat-label">试用用户私钥</div>
+            </div>
+        </div>
+        
+        <div class="key-groups">
+            <div class="key-group">
+                <div class="group-header">
+                    <div class="group-title">🌟 高级用户组</div>
+                    <div class="group-count">20 个密钥</div>
+                </div>
+                <div class="key-list" id="premium-keys">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            
+            <div class="key-group">
+                <div class="group-header">
+                    <div class="group-title">📚 标准用户组</div>
+                    <div class="group-count">50 个密钥</div>
+                </div>
+                <div class="key-list" id="standard-keys">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            
+            <div class="key-group">
+                <div class="group-header">
+                    <div class="group-title">🔍 试用用户组</div>
+                    <div class="group-count">100 个密钥</div>
+                </div>
+                <div class="key-list" id="trial-keys">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="tools">
+            <h3>🛠️ 管理工具</h3>
+            <div class="tool-buttons">
+                <button class="btn-tool btn-generate" onclick="generateMoreKeys()">
+                    生成更多密钥
+                </button>
+                <button class="btn-tool btn-package" onclick="createDistributionPackage()">
+                    创建分发包
+                </button>
+                <button class="btn-tool btn-export" onclick="exportAllKeys()">
+                    导出所有密钥
+                </button>
+                <button class="btn-tool btn-generate" onclick="window.open('https://tobooks.netlify.app', '_blank')">
+                    测试认证系统
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 密钥查看模态框 -->
+    <div id="key-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">私钥内容</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="key-content" id="key-content"></div>
+            <div class="copy-success" id="copy-success">✅ 已复制到剪贴板！</div>
+            <div style="margin-top: 20px; text-align: center;">
+                <button class="btn btn-copy" onclick="copyKeyContent()">复制私钥</button>
+                <button class="btn btn-download" onclick="downloadKey()">下载文件</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        (function enableCopyAndContextMenu(){
+            const events = ['copy','cut','paste','contextmenu','selectstart','dragstart'];
+            events.forEach(function(evt){
+                document.addEventListener(evt, function(e){
+                    e.stopImmediatePropagation();
+                }, true);
+            });
+            document.addEventListener('DOMContentLoaded', function(){
+                const all = document.getElementsByTagName('*');
+                for (var i = 0; i < all.length; i++) {
+                    all[i].oncopy = all[i].oncut = all[i].onpaste = all[i].oncontextmenu = all[i].onselectstart = all[i].ondragstart = null;
+                }
+            });
+        })();
+
+        // 模拟密钥数据（实际项目中应该从服务器获取）
+        const keyGroups = {
+            premium: Array.from({length: 20}, (_, i) => ({
+                id: `premium_${i + 1}`,
+                name: `private_${i + 1}.pem`,
+                group: 'premium_users'
+            })),
+            standard: Array.from({length: 50}, (_, i) => ({
+                id: `standard_${i + 1}`,
+                name: `private_${i + 1}.pem`,
+                group: 'standard_users'
+            })),
+            trial: Array.from({length: 100}, (_, i) => ({
+                id: `trial_${i + 1}`,
+                name: `private_${i + 1}.pem`,
+                group: 'trial_users'
+            }))
+        };
+        
+        let currentKeyData = null;
+        
+        // 初始化页面
+        function initializePage() {
+            renderKeyList('premium-keys', keyGroups.premium);
+            renderKeyList('standard-keys', keyGroups.standard);
+            renderKeyList('trial-keys', keyGroups.trial);
+        }
+        
+        // 渲染密钥列表
+        function renderKeyList(containerId, keys) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = keys.map(key => `
+                <div class="key-item">
+                    <span class="key-name">${key.name}</span>
+                    <div class="key-actions">
+                        <button class="btn btn-view" onclick="viewKey('${key.id}', '${key.name}', '${key.group}')">
+                            查看
+                        </button>
+                        <button class="btn btn-copy" onclick="quickCopy('${key.id}', '${key.group}')">
+                            复制
+                        </button>
+                        <button class="btn btn-download" onclick="downloadKey('${key.id}', '${key.name}', '${key.group}')">
+                            下载
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 查看密钥
+        async function viewKey(keyId, keyName, group) {
+            try {
+                // 这里应该从服务器获取实际的私钥内容
+                // 为了演示，我们使用模拟数据
+                const keyContent = await getKeyContent(keyId, group);
+                
+                document.getElementById('modal-title').textContent = `私钥: ${keyName}`;
+                document.getElementById('key-content').textContent = keyContent;
+                document.getElementById('key-modal').style.display = 'block';
+                
+                currentKeyData = {
+                    id: keyId,
+                    name: keyName,
+                    content: keyContent,
+                    group: group
+                };
+            } catch (error) {
+                alert('获取私钥失败: ' + error.message);
+            }
+        }
+        
+        // 获取密钥内容（模拟）
+        async function getKeyContent(keyId, group) {
+            // 模拟私钥内容（避免使用模板字符串以兼容严格解析器）
+            return [
+                '-----BEGIN RSA PRIVATE KEY-----',
+                'MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL',
+                'MNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL',
+                'MNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL',
+                '... (这是 ' + group + ' 组的 ' + keyId + ' 私钥) ...',
+                '-----END RSA PRIVATE KEY-----'
+            ].join('\\n');
+        }
+        
+        // 快速复制
+        async function quickCopy(keyId, group) {
+            try {
+                const keyContent = await getKeyContent(keyId, group);
+                await navigator.clipboard.writeText(keyContent);
+                
+                // 显示成功提示
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '已复制!';
+                btn.style.background = '#28a745';
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '#28a745';
+                }, 2000);
+            } catch (error) {
+                alert('复制失败: ' + error.message);
+            }
+        }
+        
+        // 复制模态框中的密钥
+        async function copyKeyContent() {
+            if (!currentKeyData) return;
+            
+            try {
+                await navigator.clipboard.writeText(currentKeyData.content);
+                document.getElementById('copy-success').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('copy-success').style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                alert('复制失败: ' + error.message);
+            }
+        }
+        
+        // 下载密钥文件
+        function downloadKey(keyId, keyName, group) {
+            if (arguments.length === 0 && currentKeyData) {
+                // 从模态框下载
+                keyId = currentKeyData.id;
+                keyName = currentKeyData.name;
+                group = currentKeyData.group;
+            }
+            
+            getKeyContent(keyId, group).then(content => {
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = keyName || (keyId + '.pem');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('key-modal').style.display = 'none';
+            currentKeyData = null;
+        }
+        
+        // 生成更多密钥
+        function generateMoreKeys() {
+            const count = prompt('请输入要生成的密钥数量:', '10');
+            if (count && !isNaN(count) && count > 0) {
+                alert('将生成 ' + count + ' 个新密钥（实际项目中会调用后端API）');
+                // 这里应该调用后端API生成新密钥
+            }
+        }
+        
+        // 创建分发包
+        function createDistributionPackage() {
+            alert('正在创建分发包...（实际项目中会打包下载）');
+            // 这里应该调用后端API创建分发包
+        }
+        
+        // 导出所有密钥
+        function exportAllKeys() {
+            const format = confirm('选择导出格式:\\n确定 = JSON\\n取消 = ZIP') ? 'json' : 'zip';
+            alert('将导出为 ' + format.toUpperCase() + ' 格式（实际项目中会生成下载）');
+            // 这里应该调用后端API导出密钥
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('key-modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', initializePage);
+    </script>
+</body>
+</html>

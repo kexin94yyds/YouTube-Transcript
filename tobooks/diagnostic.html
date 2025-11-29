@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>诊断报告</title>
+    <style>
+        body {
+            font-family: -apple-system, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .check {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #ccc;
+        }
+        .check.success {
+            border-left-color: #00aa00;
+        }
+        .check.error {
+            border-left-color: #ff0000;
+        }
+        .check h3 {
+            margin: 0 0 10px 0;
+        }
+        .code {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 手势导航诊断报告</h1>
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+        
+        function addCheck(title, isSuccess, details) {
+            const div = document.createElement('div');
+            div.className = `check ${isSuccess ? 'success' : 'error'}`;
+            div.innerHTML = `
+                <h3>${isSuccess ? '✅' : '❌'} ${title}</h3>
+                <div class="code">${details}</div>
+            `;
+            results.appendChild(div);
+        }
+        
+        // 检查 1: 当前URL
+        addCheck(
+            '当前页面URL',
+            true,
+            window.location.href
+        );
+        
+        // 检查 2: BooksGestureNavigation 类是否存在
+        const hasClass = typeof window.BooksGestureNavigation !== 'undefined';
+        addCheck(
+            'BooksGestureNavigation 类',
+            hasClass,
+            hasClass ? 'class BooksGestureNavigation { ... } 已加载' : 'undefined - 未加载！'
+        );
+        
+        // 检查 3: 尝试加载脚本
+        const scriptTest = document.querySelector('script[src*="books-gesture"]');
+        addCheck(
+            '脚本标签',
+            scriptTest !== null,
+            scriptTest ? `找到: ${scriptTest.src}` : '未找到 books-gesture-navigation.js 引用'
+        );
+        
+        // 检查 4: Wheel 事件监听
+        let wheelWorks = false;
+        document.addEventListener('wheel', (e) => {
+            wheelWorks = true;
+            addCheck(
+                'Wheel 事件触发',
+                true,
+                `deltaX: ${e.deltaX}, deltaY: ${e.deltaY}`
+            );
+        }, { once: true });
+        
+        setTimeout(() => {
+            if (!wheelWorks) {
+                addCheck(
+                    'Wheel 事件测试',
+                    false,
+                    '请在页面上滑动触控板以触发此检查'
+                );
+            }
+        }, 3000);
+        
+        // 检查 5: 浏览器信息
+        addCheck(
+            '浏览器信息',
+            true,
+            navigator.userAgent
+        );
+        
+        console.log('诊断页面已加载');
+    </script>
+</body>
+</html>

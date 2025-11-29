@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>签名调试工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        textarea { width: 100%; height: 200px; margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+        .result { background: #f0f0f0; padding: 10px; margin: 10px 0; word-break: break-all; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>RSA签名调试工具</h1>
+    
+    <div>
+        <label>私钥内容:</label>
+        <textarea id="privateKey" placeholder="粘贴私钥内容..."></textarea>
+    </div>
+    
+    <div>
+        <label>要签名的消息:</label>
+        <input type="text" id="message" value="请求访问" style="width: 100%; padding: 8px;">
+    </div>
+    
+    <button onclick="generateSignature()">生成签名</button>
+    <button onclick="testWithServer()">测试服务器验证</button>
+    
+    <div id="results"></div>
+    
+    <script src="auth-demo/js/jsrsasign-all-min.js"></script>
+    <script>
+        function generateSignature() {
+            const privateKey = document.getElementById('privateKey').value.trim();
+            const message = document.getElementById('message').value;
+            const resultsDiv = document.getElementById('results');
+            
+            if (!privateKey || !message) {
+                resultsDiv.innerHTML = '<div class="result error">请输入私钥和消息</div>';
+                return;
+            }
+            
+            try {
+                console.log('=== 签名生成调试 ===');
+                console.log('消息:', message);
+                console.log('消息长度:', message.length);
+                console.log('消息UTF-8字节:', new TextEncoder().encode(message));
+                
+                // 使用KJUR库生成签名
+                const sig = new KJUR.crypto.Signature({"alg": "SHA256withRSA"});
+                sig.init(privateKey);
+                sig.updateString(message, 'utf8');
+                const signature = sig.sign();
+                const signatureBase64 = hextob64(signature);
+                
+                console.log('生成的签名 (hex):', signature);
+                console.log('生成的签名 (base64):', signatureBase64);
+                
+                resultsDiv.innerHTML = `
+                    <div class="result success">
+                        <h3>签名生成成功</h3>
+                        <p><strong>消息:</strong> ${message}</p>
+                        <p><strong>签名 (hex):</strong> ${signature}</p>
+                        <p><strong>签名 (base64):</strong> ${signatureBase64}</p>
+                        <p><strong>OpenSSL对比签名:</strong> iI5BE5k0goC6STBz0AuT5vxM9fgSDJUj2cxl2UB9tcPHvIcUZOedgRjWtNpWGuN+sWi7rQ3zdCfy7FBhXDWCpM5v4dTdK53sogO9dYBlhn0RsdFw59ZDrlGpQaykbjThQyTftSSKXJGzfz5vNyCapndEl70HJbcrud0GoBMkTB4vzDFX84gopL8P5UmUCIygD7S7f6SY1jO1cBO/odbyIh++4y8eJMXyGl6MBHde/5ac95q1uzdbe3hHrNi/tChvzMCZRykNLEgdbVdIyxH+y18+gq1sYn4smgm90Zic28AmGfVyHsVIA8wOHiTMEhxb21jVOSv67fcRN4L3yHbEjQ==</p>
+                        <p><strong>签名匹配:</strong> ${signatureBase64 === 'iI5BE5k0goC6STBz0AuT5vxM9fgSDJUj2cxl2UB9tcPHvIcUZOedgRjWtNpWGuN+sWi7rQ3zdCfy7FBhXDWCpM5v4dTdK53sogO9dYBlhn0RsdFw59ZDrlGpQaykbjThQyTftSSKXJGzfz5vNyCapndEl70HJbcrud0GoBMkTB4vzDFX84gopL8P5UmUCIygD7S7f6SY1jO1cBO/odbyIh++4y8eJMXyGl6MBHde/5ac95q1uzdbe3hHrNi/tChvzMCZRykNLEgdbVdIyxH+y18+gq1sYn4smgm90Zic28AmGfVyHsVIA8wOHiTMEhxb21jVOSv67fcRN4L3yHbEjQ==' ? '✅ 匹配' : '❌ 不匹配'}</p>
+                    </div>
+                `;
+                
+                // 保存到全局变量供测试使用
+                window.lastSignature = signatureBase64;
+                window.lastMessage = message;
+                
+            } catch (error) {
+                console.error('签名生成错误:', error);
+                resultsDiv.innerHTML = `<div class="result error">签名生成失败: ${error.message}</div>`;
+            }
+        }
+        
+        function testWithServer() {
+            if (!window.lastSignature || !window.lastMessage) {
+                document.getElementById('results').innerHTML += '<div class="result error">请先生成签名</div>';
+                return;
+            }
+            
+            fetch('/api/authenticate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: window.lastMessage,
+                    signature: window.lastSignature,
+                    keyId: 'unknown'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultsDiv = document.getElementById('results');
+                if (data.success) {
+                    resultsDiv.innerHTML += `<div class="result success">✅ 服务器验证成功! 使用的密钥: ${data.keyId}</div>`;
+                } else {
+                    resultsDiv.innerHTML += `<div class="result error">❌ 服务器验证失败: ${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                document.getElementById('results').innerHTML += `<div class="result error">服务器请求错误: ${error.message}</div>`;
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Node modules
+node_modules/
+package-lock.json
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Keys and sensitive files
+*.pem
+keys/
+batch_keys/
+dist/
+
+# Temporary files
+*.tmp
+*.temp
+

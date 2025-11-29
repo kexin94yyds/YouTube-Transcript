@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epub Reader</title>
+    <link rel="icon" type="image/png" href="public/favicon.png">
+    <link rel="stylesheet" href="auth-demo/css/styles.css">
+    
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- 二维码库（使用CDN，避免本地目录被忽略导致加载失败） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        html, body, * {
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
+        }
+
+        /* iOS 全屏安全区 */
+        html, body { min-height: 100dvh; }
+        body {
+            padding-top: env(safe-area-inset-top); padding-top: constant(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom); padding-bottom: constant(safe-area-inset-bottom);
+        }
+        
+        /* ========== 支付功能样式 ========== */
+        .premium-buy-btn {
+            background-color: #3079E3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(48, 121, 227, 0.2);
+            font-weight: 500;
+        }
+
+        .premium-buy-btn:hover {
+            background-color: #4A8AF4;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(48, 121, 227, 0.3);
+        }
+        
+        .premium-buy-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 支付模态框样式 */
+        .payment-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .payment-modal.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .payment-modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 0;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            position: relative;
+            transform: scale(0.9) translateY(20px);
+            transition: transform 0.3s ease;
+            overflow: hidden;
+        }
+
+        .payment-modal.active .payment-modal-content {
+            transform: scale(1) translateY(0);
+        }
+
+        .payment-modal .modal-header h3 {
+            margin: 0;
+            color: #333;
+            font-size: 20px;
+        }
+
+        .payment-modal .modal-header button {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .payment-modal .modal-header button:hover {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .payment-modal .order-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .payment-modal .order-info p {
+            margin: 5px 0;
+            color: #333;
+        }
+
+        .payment-modal .order-info strong {
+            color: #333;
+        }
+
+        /* 新的支付模态框样式 */
+        .payment-header {
+            background: linear-gradient(135deg, #07C160 0%, #00D4AA 100%);
+            color: white;
+            padding: 20px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .payment-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .wechat-icon {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wechat-icon svg {
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+        }
+
+        .wechat-icon svg:hover {
+            transform: scale(1.1);
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+        }
+
+        .payment-title h3 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .close-btn::before {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 1.5px;
+            background: currentColor;
+            transform: rotate(45deg);
+            border-radius: 1px;
+        }
+
+        .close-btn::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 1.5px;
+            background: currentColor;
+            transform: rotate(-45deg);
+            border-radius: 1px;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: scale(1.08);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .close-btn:hover::before,
+        .close-btn:hover::after {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .close-btn:active {
+            transform: scale(0.92);
+            transition: transform 0.1s ease;
+        }
+
+        .payment-body {
+            padding: 24px;
+        }
+
+        .amount-display {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .currency {
+            font-size: 24px;
+            color: #07C160;
+            font-weight: 600;
+        }
+
+        .amount {
+            font-size: 48px;
+            color: #07C160;
+            font-weight: 700;
+            margin-left: 4px;
+        }
+
+        .countdown-container {
+            text-align: center;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 2px solid #e9ecef;
+        }
+
+        .countdown-label {
+            font-size: 14px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .countdown-timer {
+            font-size: 24px;
+            font-weight: 700;
+            color: #dc3545;
+            font-family: 'Courier New', monospace;
+        }
+
+        .countdown-timer.warning {
+            color: #fd7e14;
+            animation: pulse 1s infinite;
+        }
+
+        .countdown-timer.danger {
+            color: #dc3545;
+            animation: pulse 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .qrcode-section {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .qrcode-container {
+            display: inline-block;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 16px;
+        }
+
+        .qrcode-tips p {
+            margin: 4px 0;
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        .order-info {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .order-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .order-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .order-item .label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        .order-item .value {
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .payment-status {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #e3f2fd;
+            border-radius: 20px;
+            border: 1px solid #bbdefb;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #2196f3;
+            animation: blink 2s infinite;
+        }
+
+        .status-dot.success {
+            background: #4caf50;
+            animation: none;
+        }
+
+        .status-dot.error {
+            background: #f44336;
+            animation: none;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        .payment-footer {
+            text-align: center;
+            padding-top: 16px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .payment-footer p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 12px;
+        }
+
+        /* 错误提示样式 */
+        .payment-error {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10001;
+            max-width: 400px;
+            animation: slideInRight 0.3s ease;
+        }
+
+        .error-content {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border-left: 4px solid #f44336;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .payment-error.warning .error-content {
+            border-left-color: #ff9800;
+        }
+
+        .error-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .error-message {
+            flex: 1;
+            color: #333;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .error-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .error-close:hover {
+            color: #666;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* 教程按钮悬停效果 */
+        .tutorial-btn:hover {
+            background: #218838 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4) !important;
+        }
+
+        .tutorial-btn:active {
+            transform: translateY(0);
+        }
+
+        /* 介绍按钮悬停效果 */
+        #intro-access-btn:hover {
+            background: #2980b9 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4) !important;
+        }
+
+        #intro-access-btn:active {
+            transform: translateY(0);
+        }
+
+        /* 支付成功美化 */
+        .success-modal {
+            max-width: 560px;
+            padding: 28px 28px 24px;
+            background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            box-shadow: 0 12px 40px rgba(45, 102, 246, 0.12);
+            border-radius: 16px;
+        }
+        .success-header { text-align: center; margin-bottom: 12px; }
+        .success-icon { font-size: 48px; margin-bottom: 6px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.12)); }
+        .success-title { font-size: 22px; font-weight: 700; color: #1f2937; }
+        .success-subtitle { color: #6b7280; font-size: 14px; margin-top: 6px; }
+
+        .key-card { background: #f3f7ff; border: 1px solid #e3ecff; border-radius: 12px; padding: 14px; margin: 18px 0; }
+        .key-card-title { color: #1f2937; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .key-emoji { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.1)); }
+        .key-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+        .key-value { flex: 1; background: #fff; border: 1px dashed #c7d2fe; border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 16px; letter-spacing: 1px; color: #111827; }
+        .key-copy-tip { color: #6b7280; font-size: 12px; white-space: nowrap; }
+        .success-btn { width: 100%; margin-top: 8px !important; background: linear-gradient(90deg, #2563eb 0%, #0891b2 100%) !important; }
+
+        /* 支付成功页面教程按钮悬停效果 */
+        .tutorial-btn:hover {
+            background: #fdd835 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 235, 59, 0.4) !important;
+        }
+
+        /* 切书按钮悬停效果 */
+        #book-cutting-btn:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6) !important;
+        }
+
+        #book-cutting-btn:active {
+            transform: translateY(0);
+        }
+
+        /* 立即进入按钮悬停效果 */
+        #enter-now-btn:hover {
+            background: rgba(255, 255, 255, 0.3) !important;
+            border-color: rgba(255, 255, 255, 0.5) !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        }
+
+        #enter-now-btn:active {
+            transform: translateY(0);
+        }
+
+        /* 移动端优化 */
+        @media (max-width: 480px) {
+            .payment-modal-content {
+                width: 95%;
+                max-width: none;
+            }
+            
+            .amount {
+                font-size: 36px;
+            }
+            
+            .countdown-timer {
+                font-size: 20px;
+            }
+            
+            .payment-body {
+                padding: 20px;
+            }
+            
+            .payment-error {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+            }
+        }
+
+        .premium-locked {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.6;
+            filter: blur(2px);
+        }
+
+        .premium-locked::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(2px);
+            z-index: 10;
+        }
+
+        .premium-lock-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border: 1px solid #e0e0e0;
+            color: #333;
+            padding: 30px 40px;
+            border-radius: 16px;
+            text-align: center;
+            z-index: 10000;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .premium-lock-message .lock-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .premium-lock-message .lock-icon svg {
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 2px 4px rgba(9, 187, 7, 0.3));
+        }
+
+        .premium-lock-message .lock-icon svg:hover {
+            transform: scale(1.1);
+            filter: drop-shadow(0 4px 8px rgba(9, 187, 7, 0.4));
+        }
+
+        .premium-lock-message h3 {
+            margin: 0 0 12px 0;
+            font-size: 20px;
+            color: #333;
+        }
+
+        .premium-lock-message p {
+            margin: 0 0 20px 0;
+            color: #666;
+        }
+
+
+
+        #payment-qrcode {
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            display: inline-block;
+        }
+
+        .payment-amount {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3079E3;
+            margin: 15px 0;
+        }
+
+        .payment-tips {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .payment-order {
+            color: #999;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+
+
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+        
+        /* 登录按钮悬停效果 */
+        #login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+        }
+        
+        /* 立即购买按钮样式 */
+        #buy-now-btn {
+            transition: all 0.3s ease !important;
+        }
+        
+        #buy-now-btn:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4) !important;
+        }
+        
+        #buy-now-btn:active {
+            transform: translateY(0) !important;
+        }
+        
+        #buy-now-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部用户栏 -->
+        <div style="position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 10px; z-index: 100;">
+            <!-- 用户信息容器 -->
+            <div id="user-avatar-container" style="display: none; align-items: center; gap: 8px; background: white; padding: 8px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <img id="user-avatar" src="" alt="User Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                <span id="user-name" style="font-size: 14px; color: #333; font-weight: 500;">用户</span>
+                <span id="user-status" style="font-size: 12px; padding: 2px 8px; border-radius: 12px; background: #e0e0e0; color: #666;">免费版</span>
+            </div>
+            
+            <!-- 登录按钮（未登录时显示） -->
+            <button id="login-btn" style="display: block; padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); transition: all 0.3s;">
+                登录
+            </button>
+        </div>
+        
+        <div class="title-container">
+            <div class="title-with-icon">
+                <img src="public/favicon.png" alt="Book Icon" class="title-icon">
+                <h1>Epub Reader</h1>
+            </div>
+            <p class="subtitle">一个简洁、高效的在线Epub电子书阅读器。</p>
+        </div>
+        
+        <div id="auth-container" style="position: relative;">
+            <div id="login-form">
+                <!-- 价格信息 -->
+                <div class="price-info" style="text-align: center; margin: 15px 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%;">
+                    <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">🎉 永久价格</div>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 6px;">
+                        <span style="font-size: 24px; font-weight: bold; color: #ffeb3b;">¥199</span>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-size: 14px; color: rgba(255, 255, 255, 0.9);">一次付费，永久使用</div>
+                    </div>
+                    
+                    <!-- 立即购买按钮 -->
+                    <button id="buy-now-btn" style="width: 100%; padding: 15px 30px; background: #ffeb3b; color: #333; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.3s; margin-top: 10px;">
+                        💳 立即购买（微信支付）
+                    </button>
+                    <div style="font-size: 12px; margin-top: 8px; opacity: 0.9;">一次付费，永久使用 • 支持微信扫码支付</div>
+                    
+                    <!-- 按钮组 -->
+                    <div style="display: flex; gap: 10px; margin-top: 12px;">
+                        <!-- 切书按钮 -->
+                        <button id="book-cutting-btn" onclick="window.open('book-cutting.html', '_blank')" style="flex: 1; padding: 12px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 500; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);">
+                            📚 切书功能
+                        </button>
+                        
+                        <!-- 立即进入按钮 -->
+                        <button id="enter-now-btn" style="flex: 1; padding: 12px 20px; background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; font-size: 16px; font-weight: 500; cursor: pointer; transition: all 0.3s; backdrop-filter: blur(8px);">
+                            🚀 立即进入
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 功能说明 -->
+                <div class="features-info" style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #3498db;">
+                    <h3 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 18px;">🚀 支持功能</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">📚 核心功能</div>
+                            <ul style="margin: 0; padding-left: 20px; color: #555;">
+                                <li>通过 Library 下载任意书籍</li>
+                                <li>阅读 EPUB 文件 + 网页兼容</li>
+                                <li>全文搜索 + 关键词高亮搜索</li>
+                                <li>电脑、手机、平板均支持</li>
+                                <li>无需实体书，轻便自由</li>
+                                <li>网页版容器化，兼容各种插件</li>
+                            </ul>
+                        </div>
+                                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">🎨 阅读体验</div>
+                    <ul style="margin: 0; padding-left: 20px; color: #555;">
+                        <li>语言无障碍：AI 实时翻译</li>
+                        <li>支持双语对照、模糊处理、单语翻译</li>
+                        <li>原版英文阅读，自然习得语言</li>
+                        <li>读写结合，阅读即研究</li>
+                        <li>响应式设计 + 无需安装软件</li>
+                    </ul>
+                </div>
+                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">🧠 AI 智能支持</div>
+                            <ul style="margin: 0; padding-left: 20px; color: #555;">
+                                <li>右侧 AI 助手，查阅笔记即问即答</li>
+                                <li>跨章节提问/深度理解</li>
+                                <li>AI 帮助研究未讲清楚的内容</li>
+                                <li>AI 提示词库提升输出质量</li>
+                            </ul>
+                        </div>
+                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">✍️ 学习记忆</div>
+                            <ul style="margin: 0; padding-left: 20px; color: #555;">
+                                <li>实时笔记功能（记录想法而非摘抄）</li>
+                                <li>自建查词、记词插件与快捷键</li>
+                                <li>支持句子级保存上下文以便回忆</li>
+                                <li>英文选中朗读，助记发音、理解词义</li>
+                            </ul>
+                        </div>
+                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">🔧 高级辅助</div>
+                            <ul style="margin: 0; padding-left: 20px; color: #555;">
+                                <li>自写脚本：章节切书，提高上下文理解效率</li>
+                                <li>快捷查词、存词插件：查即存，存即回顾</li>
+                                <li>无痛翻译整段英文</li>
+                                <li>多任务融合：看、听、查、读、记同步进行</li>
+                            </ul>
+                        </div>
+                                        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; color: #3498db; margin-bottom: 8px;">⚠️ 注意事项</div>
+                    <ul style="margin: 0; padding-left: 20px; color: #555;">
+                        <li>功能全面 需报名读书社群</li>
+                        <li>Windows 和 Mac 均可实现，推荐 Mac</li>
+                    </ul>
+                </div>
+                    </div>
+                </div>
+                
+                <!-- 答疑和教程 -->
+                <div class="tutorial-info" style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #28a745; text-align: center;">
+                    <h3 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 18px;">📚 答疑和教程</h3>
+                    <p style="margin: 0 0 15px 0; color: #555; font-size: 14px;">我们提供详细的使用教程和专业技术支持</p>
+                    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px;">
+                        <button id="intro-access-btn" 
+                                class="tutorial-btn"
+                                style="display: inline-block; padding: 12px 24px; background: #3498db; color: white; text-decoration: none; border: none; border-radius: 6px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3); cursor: pointer;">
+                            📋 查看完整介绍
+                        </button>
+                        <button id="tutorial-access-btn" 
+                                class="tutorial-btn"
+                                style="display: inline-block; padding: 12px 24px; background: #28a745; color: white; text-decoration: none; border: none; border-radius: 6px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3); cursor: pointer;">
+                            📖 查看详细教程
+                        </button>
+                    </div>
+                    <p style="margin: 10px 0 0 0; color: #666; font-size: 12px;">点击查看完整的使用指南和技术文档</p>
+                </div>
+                
+                <div id="status-message"></div>
+            </div>
+        </div>
+        
+        <div id="protected-content" style="display: none;">
+            <h2>🎉 支付成功！</h2>
+            <p>🎉 您已获得永久访问权限！感谢您的支持！</p>
+            <div class="content-box">
+                <h3>📚 完整教程</h3>
+                <p>恭喜您成为付费用户！现在可以访问完整的使用教程：</p>
+                
+                <!-- 教程链接卡片 -->
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin: 20px 0; text-align: center;">
+                    <h4 style="margin: 0 0 15px 0; font-size: 18px;">📖 完整使用教程</h4>
+                    <p style="margin: 0 0 15px 0; opacity: 0.9;">包含所有功能的详细使用指南</p>
+                    <button onclick="openTutorialWithPassword()" 
+                            class="tutorial-btn"
+                            style="display: inline-block; padding: 12px 24px; background: #ffeb3b; color: #333; text-decoration: none; border: none; border-radius: 6px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(255, 235, 59, 0.3); cursor: pointer;">
+                        🔗 查看完整教程
+                    </button>
+                    <div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
+                        密码：<strong>kx94yyds</strong>
+                    </div>
+                </div>
+                
+                <h3>🚀 功能清单</h3>
+                <p>您现在可以访问完整的电子书阅读功能，包括：</p>
+                <ul style="text-align: left; margin-top: 10px;">
+                    <li>✅ 通过 Library 下载任意书籍</li>
+                    <li>✅ 阅读 EPUB 文件 + 网页兼容</li>
+                    <li>✅ 全文搜索 + 关键词高亮搜索</li>
+                    <li>✅ 电脑、手机、平板均支持</li>
+                    <li>✅ 语言无障碍：AI 实时翻译</li>
+                    <li>✅ 支持双语对照、模糊处理、单语翻译</li>
+                    <li>✅ 右侧 AI 助手，查阅笔记即问即答</li>
+                    <li>✅ 实时笔记功能（记录想法而非摘抄）</li>
+                    <li>✅ 自建查词、记词插件与快捷键</li>
+                    <li>✅ 英文选中朗读，助记发音、理解词义</li>
+                    <li>✅ 多任务融合：看、听、查、读、记同步进行</li>
+                </ul>
+                <div style="margin-top: 16px; text-align: center;">
+                    <button id="get-tutorial-btn" class="get-key-btn" style="cursor: pointer;">
+                        <span>🎁 联系我领取额外教程</span>
+                        <div class="wechat-tooltip">
+                            <img src="public/wechat-qr.png" alt="微信二维码" />
+                            <p>添加好友，回复"看书"领取价值 499 元的《怎么最大效率化的看书》见面礼</p>
+                        </div>
+                    </button>
+                    <!-- 新增：查看付费教程快捷按钮 -->
+                    <div style="margin-top: 12px;">
+                        <button class="tutorial-btn" onclick="openTutorialWithPassword()" style="padding: 10px 20px; border: none; border-radius: 6px; background: #28a745; color: #fff; cursor: pointer;">
+                            📖 直接查看付费教程（已自动复制私钥）
+                        </button>
+                        <div style="margin-top: 8px; font-size: 12px; color: #666;">私钥：<strong>kx94yyds</strong>（已自动复制到剪贴板）</div>
+                    </div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 20px;">
+                <a href="tobooks-main/index.html" style="display: inline-block; padding: 12px 24px; background: #3498db; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    立即进入看书平台 →
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 支付功能模态框 -->
+    <div id="premium-lock-message" class="premium-lock-message" style="display: none;">
+        <div class="lock-icon">
+            <svg class="svg-icon" style="width: 48px; height: 48px; fill: #09BB07;" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+                <path d="M395.846 603.585c-3.921 1.98-7.936 2.925-12.81 2.925-10.9 0-19.791-5.85-24.764-14.625l-2.006-3.864-78.106-167.913c-0.956-1.98-0.956-3.865-0.956-5.845 0-7.83 5.928-13.68 13.863-13.68 2.965 0 5.928 0.944 8.893 2.924l91.965 64.43c6.884 3.864 14.82 6.79 23.708 6.79 4.972 0 9.85-0.945 14.822-2.926L861.71 282.479c-77.149-89.804-204.684-148.384-349.135-148.384-235.371 0-427.242 157.158-427.242 351.294 0 105.368 57.361 201.017 147.323 265.447 6.88 4.905 11.852 13.68 11.852 22.45 0 2.925-0.957 5.85-2.006 8.775-6.881 26.318-18.831 69.334-18.831 71.223-0.958 2.92-2.013 6.79-2.013 10.75 0 7.83 5.929 13.68 13.865 13.68 2.963 0 5.928-0.944 7.935-2.925l92.922-53.674c6.885-3.87 14.82-6.794 22.756-6.794 3.916 0 8.889 0.944 12.81 1.98 43.496 12.644 91.012 19.53 139.48 19.53 235.372 0 427.24-157.158 427.24-351.294 0-58.58-17.78-114.143-48.467-163.003l-491.39 280.07-2.963 1.98z" />
+            </svg>
+        </div>
+        <h3>解锁完整版以使用高级功能</h3>
+        <p>一次购买，永久使用所有高级功能</p>
+        <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+            <div style="font-size: 16px; color: #666; margin-bottom: 10px;">包含功能：</div>
+            <ul style="text-align: left; margin: 0; padding-left: 20px; color: #555;">
+                <li>✅ 无限次使用所有高级功能</li>
+                <li>✅ 高级主题切换</li>
+                <li>✅ 笔记和标注功能</li>
+                <li>✅ 书签同步</li>
+                <li>✅ 云端数据同步</li>
+                <li>✅ 终身免费更新</li>
+            </ul>
+        </div>
+        <button id="premium-buy-btn" class="premium-buy-btn">立即购买 ¥199.00</button>
+        <p style="margin-top: 15px; color: #999; font-size: 14px;">需要先登录才能购买</p>
+    </div>
+
+
+    <!-- 支付模态框 -->
+    <div id="payment-modal" class="payment-modal">
+        <div class="payment-modal-content">
+            <!-- 顶部标题栏 -->
+            <div class="payment-header">
+                <div class="payment-title">
+                    <div class="wechat-icon">
+                        <svg class="svg-icon" style="width: 24px; height: 24px; fill: white;" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M395.846 603.585c-3.921 1.98-7.936 2.925-12.81 2.925-10.9 0-19.791-5.85-24.764-14.625l-2.006-3.864-78.106-167.913c-0.956-1.98-0.956-3.865-0.956-5.845 0-7.83 5.928-13.68 13.863-13.68 2.965 0 5.928 0.944 8.893 2.924l91.965 64.43c6.884 3.864 14.82 6.79 23.708 6.79 4.972 0 9.85-0.945 14.822-2.926L861.71 282.479c-77.149-89.804-204.684-148.384-349.135-148.384-235.371 0-427.242 157.158-427.242 351.294 0 105.368 57.361 201.017 147.323 265.447 6.88 4.905 11.852 13.68 11.852 22.45 0 2.925-0.957 5.85-2.006 8.775-6.881 26.318-18.831 69.334-18.831 71.223-0.958 2.92-2.013 6.79-2.013 10.75 0 7.83 5.929 13.68 13.865 13.68 2.963 0 5.928-0.944 7.935-2.925l92.922-53.674c6.885-3.87 14.82-6.794 22.756-6.794 3.916 0 8.889 0.944 12.81 1.98 43.496 12.644 91.012 19.53 139.48 19.53 235.372 0 427.24-157.158 427.24-351.294 0-58.58-17.78-114.143-48.467-163.003l-491.39 280.07-2.963 1.98z" />
+                        </svg>
+                    </div>
+                    <h3>微信支付</h3>
+                </div>
+                <button id="payment-close-btn" class="close-btn"></button>
+            </div>
+            
+            <!-- 支付内容区域 -->
+            <div class="payment-body">
+                <!-- 金额显示 -->
+                <div class="amount-display">
+                    <span class="currency">¥</span>
+                    <span class="amount">199.00</span>
+                </div>
+                
+                <!-- 倒计时 -->
+                <div class="countdown-container">
+                    <div class="countdown-label">订单剩余时间</div>
+                    <div id="payment-countdown" class="countdown-timer">29:59</div>
+                </div>
+                
+                <!-- 二维码区域 -->
+                <div class="qrcode-section">
+                    <div id="payment-qrcode" class="qrcode-container"></div>
+                    <div class="qrcode-tips">
+                        <p>请使用微信扫描二维码</p>
+                        <p>完成支付</p>
+                    </div>
+                </div>
+                
+                <!-- 订单信息 -->
+                <div class="order-info">
+                    <div class="order-item">
+                        <span class="label">订单号:</span>
+                        <span id="payment-order-no" class="value">-</span>
+                    </div>
+                    <div class="order-item">
+                        <span class="label">商品:</span>
+                        <span class="value">Tobooks完整版</span>
+                    </div>
+                </div>
+                
+                <!-- 支付状态指示器 -->
+                <div class="payment-status">
+                    <div class="status-indicator">
+                        <div class="status-dot"></div>
+                        <span id="payment-status-text">等待支付中...</span>
+                    </div>
+                </div>
+                
+                <!-- 底部提示 -->
+                <div class="payment-footer">
+                    <p>支付完成后页面将自动刷新并解锁功能</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 支付成功弹窗 -->
+        <div id="payment-success-modal" class="payment-modal">
+        <div class="payment-modal-content success-modal">
+            <div class="success-header">
+                <div class="success-icon">🎉</div>
+                <div class="success-title">支付成功！</div>
+                <div class="success-subtitle">高级功能已解锁，感谢您的支持</div>
+            </div>
+
+            <div class="key-card">
+                <div class="key-card-title">
+                    <span class="key-emoji">🔑</span>
+                    您的私钥
+                </div>
+                <div class="key-row">
+                    <div class="key-value">kx94yyds</div>
+                    <div class="key-copy-tip">已自动复制到剪贴板</div>
+                </div>
+            </div>
+
+            <button id="payment-success-close-btn" class="premium-buy-btn success-btn">开始使用</button>
+        </div>
+    </div>
+
+    <!-- 原有的脚本 -->
+    <script src="auth-demo/js/crypto-js.min.js"></script>
+    <script src="auth-demo/js/jsrsasign-all-min.js"></script>
+    <script src="auth-demo/js/auth-permanent.js"></script>
+    
+    <!-- 新增：登录+支付功能脚本 -->
+    <script src="supabaseClient.js"></script>
+    <script src="payment.js"></script>
+    <script src="premium-control.js"></script>
+    <script src="user-auth.js"></script>
+    <script>
+        (function enableCopyAndContextMenu(){
+            const events = ['copy','cut','paste','contextmenu','selectstart','dragstart'];
+            events.forEach(function(evt){
+                document.addEventListener(evt, function(e){
+                    e.stopImmediatePropagation();
+                }, true);
+            });
+
+            // 移除内联事件处理
+            document.addEventListener('DOMContentLoaded', function(){
+                const all = document.getElementsByTagName('*');
+                for (var i = 0; i < all.length; i++) {
+                    all[i].oncopy = all[i].oncut = all[i].onpaste = all[i].oncontextmenu = all[i].onselectstart = all[i].ondragstart = null;
+                }
+
+                // 确保右键菜单可用
+                document.addEventListener('contextmenu', function(e){
+                    // 允许弹出菜单
+                });
+            });
+        })();
+    </script>
+
+    <script>
+        
+        // 立即进入按钮点击事件 - 直接进入，不检查权限
+        document.getElementById('enter-now-btn').addEventListener('click', function() {
+            console.log('🚀 直接进入阅读器');
+            window.location.href = 'tobooks-main/index.html';
+        });
+
+        // 完整介绍按钮点击事件
+        document.getElementById('intro-access-btn').addEventListener('click', function() {
+            // 直接打开完整介绍页面
+            window.open('https://n0w4rb9qg8z.feishu.cn/wiki/FCw6wjzrdiwrMEkQKq8cNS6bnio', '_blank');
+        });
+
+        // 教程访问按钮点击事件
+        document.getElementById('tutorial-access-btn').addEventListener('click', function() {
+            const isPremium = localStorage.getItem('isPremiumUser') === 'true';
+            
+            if (isPremium) {
+                // 付费用户，直接打开教程
+                window.open('https://n0w4rb9qg8z.feishu.cn/wiki/FCw6wjzrdiwrMEkQKq8cNS6bnio', '_blank');
+            } else {
+                // 免费用户，显示购买提示
+                showMessage('🔒 教程需要付费后才能查看，请先购买完整版', 'error');
+                // 显示购买弹窗
+                if (window.premiumControl && window.premiumControl.showPrompt) {
+                    window.premiumControl.showPrompt();
+                }
+            }
+        });
+
+        // 领取教程按钮点击事件 - 同样复制微信号
+        document.getElementById('get-tutorial-btn').addEventListener('click', function() {
+            const wechatId = 'ymx94yyds';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(wechatId).then(function() {
+                    showMessage('微信号已复制到剪贴板：' + wechatId, 'success');
+                }).catch(function() {
+                    fallbackCopyTextToClipboard(wechatId);
+                });
+            } else {
+                fallbackCopyTextToClipboard(wechatId);
+            }
+        });
+
+        // 显示消息的辅助函数
+        function showMessage(message, type) {
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.textContent = message;
+            statusMessage.className = type;
+            
+            // 3秒后清除消息
+            setTimeout(() => {
+                statusMessage.textContent = '';
+                statusMessage.className = '';
+            }, 3000);
+        }
+    </script>
+</div>
+
+<footer style="text-align: center; padding: 20px; color: #666; font-size: 14px; border-top: 1px solid #eee; margin-top: 20px; background: white; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto;">
+    <p>By <a href="https://keepiterate.netlify.app/" target="_blank" style="color: #3498db; text-decoration: none;">可鑫</a></p>
+</footer>
+</body>
+</html>

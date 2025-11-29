@@ -1,0 +1,6 @@
+# Netlify redirects file
+# 确保根路径指向私钥认证系统
+/  /index.html  200
+
+# 处理 SPA 路由
+/*  /index.html  200

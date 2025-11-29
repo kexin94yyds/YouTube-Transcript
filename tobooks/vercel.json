@@ -1,0 +1,41 @@
+{
+  "functions": {
+    "api/book-cutting.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/upload-url",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/upload",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/download",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/cleanup",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/api/book-cutting/upload-url",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/api/book-cutting/upload",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/api/book-cutting/download",
+      "destination": "/api/book-cutting"
+    },
+    {
+      "source": "/api/book-cutting/cleanup",
+      "destination": "/api/book-cutting"
+    }
+  ]
+}

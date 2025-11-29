@@ -1,0 +1,303 @@
+.transcript-sidebar {
+    position: fixed;
+    top: 0 !important; /* 从顶部开始，覆盖整个屏幕 */
+    right: 0;
+    bottom: 0 !important; /* 延伸到底部 */
+    width: 300px;
+    height: 100vh !important; /* 填满整个视口高度 */
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    background-color: #ffffff;
+    border-left: none;
+    z-index: 2147483647; /* 最高层级，确保全屏时也显示 */
+    display: flex;
+    flex-direction: column;
+    box-shadow: none;
+    transition: transform 0.3s ease;
+    font-family: "Roboto","Arial",sans-serif;
+    border-radius: 0;
+    overflow: hidden;
+}
+
+.transcript-sidebar.collapsed {
+    display: none;
+}
+
+.transcript-header {
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    border-bottom: 1px solid #e5e5e5;
+    background-color: #ffffff;
+    gap: 12px;
+    cursor: move; /* 用作拖拽手柄 */
+    user-select: none;
+}
+
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.transcript-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    color: #0f0f0f;
+}
+
+.search-box {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #e5e5e5;
+    border-radius: 20px;
+    font-size: 14px;
+    background-color: #f9f9f9;
+    color: #0f0f0f;
+    transition: all 0.2s;
+}
+
+.search-box:focus {
+    outline: none;
+    background-color: #ffffff;
+    border-color: #065fd4;
+    box-shadow: 0 0 0 1px #065fd4;
+}
+
+.search-box::placeholder {
+    color: #606060;
+}
+
+.control-btn, .toggle-btn {
+    background: none;
+    border: none;
+    color: #606060;
+    cursor: pointer;
+    font-size: 20px;
+    padding: 8px;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-btn:hover, .toggle-btn:hover {
+    background-color: #f2f2f2;
+    color: #0f0f0f;
+}
+
+.control-btn.active {
+    background-color: #e8f0fe;
+    color: #065fd4;
+}
+
+/* EPUB 下载按钮特殊样式 */
+#download-epub:hover {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+#download-epub.loading {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.transcript-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.chapter-header {
+    padding: 12px 20px;
+    margin-top: 16px;
+    cursor: pointer;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e5e5;
+    border-top: 1px solid #e5e5e5;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.chapter-header:first-child {
+    margin-top: 0;
+    border-top: none;
+}
+
+.chapter-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f0f0f;
+    line-height: 1.4;
+    letter-spacing: -0.2px;
+}
+
+.chapter-header:hover {
+    background-color: #f9f9f9;
+}
+
+/* 章节蓝色时间戳（贴近YouTube样式） */
+.chapter-timestamp {
+    color: #065fd4;
+    font-family: "Roboto Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.transcript-item {
+    padding: 12px 20px;
+    margin: 0;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    color: #0f0f0f;
+    border-bottom: 1px solid transparent;
+    display: flex;
+    gap: 12px;
+}
+
+.transcript-item:hover {
+    background-color: #f9f9f9;
+}
+
+.transcript-item.active {
+    background-color: #e8f0fe;
+    border-bottom-color: #e5e5e5;
+    position: relative;
+}
+
+.transcript-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: #065fd4;
+}
+
+.transcript-item.active .timestamp {
+    color: #065fd4;
+    font-weight: 600;
+}
+
+.transcript-item.active .text {
+    color: #0f0f0f;
+    font-weight: 500;
+}
+
+.transcript-item.highlight {
+    background-color: #fff9c4;
+}
+
+.timestamp {
+    font-size: 12px;
+    color: #065fd4;
+    font-family: "Roboto Mono", monospace;
+    min-width: 50px;
+    flex-shrink: 0;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.timestamp:hover {
+    text-decoration: underline;
+}
+
+.text {
+    flex: 1;
+    line-height: 1.6;
+    font-size: 14px;
+    color: #0f0f0f;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    transition: background-color 0.15s ease;
+}
+
+.text:hover {
+    background-color: rgba(6, 95, 212, 0.1);
+}
+
+.text:active {
+    background-color: rgba(6, 95, 212, 0.2);
+}
+
+/* 滚动条样式 */
+.transcript-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.transcript-content::-webkit-scrollbar-track {
+    background: #ffffff;
+}
+
+/* 可调整大小的手柄 */
+.resize-handle-left {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+.resize-handle-br {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 12px;
+    height: 12px;
+    cursor: nwse-resize;
+    z-index: 2;
+}
+
+.transcript-content::-webkit-scrollbar-thumb {
+    background: #d0d0d0;
+    border-radius: 5px;
+    border: 2px solid #ffffff;
+}
+
+.transcript-content::-webkit-scrollbar-thumb:hover {
+    background: #b0b0b0;
+}
+
+/* 全屏模式支持 */
+.transcript-sidebar {
+    position: fixed !important;
+}
+
+html:fullscreen .transcript-sidebar,
+html:-webkit-full-screen .transcript-sidebar,
+html:-moz-full-screen .transcript-sidebar {
+    z-index: 2147483647 !important;
+    position: fixed !important;
+}
+
+/* 隐藏YouTube原生转录面板（不移除布局，避免加载失效） */
+/* 始终让原生面板不可见，但保持在DOM中以触发加载 */
+ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"],
+ytd-transcript-search-panel-renderer,
+ytd-transcript-renderer {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: none !important;
+}
+
+/* 兜底：如果JS添加了类，也保持同样的隐藏效果 */
+ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"].transcript-hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}

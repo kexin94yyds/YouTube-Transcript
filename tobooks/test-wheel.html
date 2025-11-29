@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>测试 Wheel 事件</title>
+    <style>
+        body {
+            font-family: -apple-system, sans-serif;
+            padding: 40px;
+            background: #f5f5f5;
+        }
+        #test-area {
+            background: white;
+            padding: 60px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+            min-height: 400px;
+        }
+        #log {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        h1 {
+            color: #333;
+        }
+        .instruction {
+            color: #666;
+            font-size: 16px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="test-area">
+        <h1>🔍 触控板手势测试</h1>
+        <p class="instruction">请在这个区域用触控板<strong>双指左右滑动</strong></p>
+        <p class="instruction">或者用鼠标<strong>滚轮滚动</strong></p>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const log = document.getElementById('log');
+        let eventCount = 0;
+
+        function addLog(message, data) {
+            eventCount++;
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<strong>${eventCount}.</strong> ${message}: ${JSON.stringify(data)}`;
+            log.insertBefore(entry, log.firstChild);
+            
+            // 只保留最近50条
+            if (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        // 监听 wheel 事件
+        document.addEventListener('wheel', (e) => {
+            addLog('🔄 Wheel事件', {
+                deltaX: e.deltaX.toFixed(2),
+                deltaY: e.deltaY.toFixed(2),
+                deltaMode: e.deltaMode,
+                clientX: e.clientX,
+                clientY: e.clientY
+            });
+        }, { passive: true });
+
+        // 监听触摸事件
+        let touchStartX = 0;
+        document.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            addLog('👆 Touch Start', {
+                x: touchStartX
+            });
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            const deltaX = e.touches[0].clientX - touchStartX;
+            addLog('👉 Touch Move', {
+                deltaX: deltaX.toFixed(2)
+            });
+        });
+
+        document.addEventListener('touchend', (e) => {
+            addLog('✋ Touch End', {});
+        });
+
+        console.log('✅ 测试页面已加载，开始监听事件');
+        addLog('✅ 初始化完成', { message: '请开始滑动' });
+    </script>
+</body>
+</html>

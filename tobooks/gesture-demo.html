@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>macOS Books 风格手势导航演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif;
+            background: #f7f7f7;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #top-bar {
+            height: 48px;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            justify-content: space-between;
+            z-index: 100;
+        }
+        
+        .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn {
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        #main-container {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #viewer {
+            flex: 1;
+            background: white;
+            position: relative;
+        }
+        
+        .instructions {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .instructions h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        
+        .instructions p {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.6;
+            font-size: 16px;
+        }
+        
+        .feature-list {
+            text-align: left;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        
+        .feature-list h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .feature-list li {
+            color: #555;
+            margin-bottom: 10px;
+            padding-left: 8px;
+        }
+        
+        .feature-list li::before {
+            content: "✓ ";
+            color: #07c160;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        #file-input-container {
+            position: relative;
+            display: inline-block;
+        }
+        
+        #file-input {
+            opacity: 0;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .nav-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 48px;
+            height: 48px;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            z-index: 50;
+        }
+        
+        .nav-button:hover {
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        #prev-button {
+            left: 20px;
+        }
+        
+        #next-button {
+            right: 20px;
+        }
+        
+        .nav-button svg {
+            width: 24px;
+            height: 24px;
+            fill: #333;
+        }
+        
+        .status-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 200;
+        }
+        
+        .status-message.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="top-bar">
+        <div class="title">📚 macOS Books 风格手势导航演示</div>
+        <div class="controls">
+            <div id="file-input-container" class="btn">
+                <span>打开电子书</span>
+                <input type="file" id="file-input" accept=".epub">
+            </div>
+        </div>
+    </div>
+    
+    <div id="main-container">
+        <button id="prev-button" class="nav-button">
+            <svg viewBox="0 0 24 24">
+                <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+            </svg>
+        </button>
+        
+        <div id="viewer">
+            <div class="instructions">
+                <h2>🎉 欢迎体验 macOS Books 风格导航</h2>
+                <p>点击上方"打开电子书"按钮选择一个 EPUB 文件开始阅读</p>
+                
+                <div class="feature-list">
+                    <h3>✨ 功能特点</h3>
+                    <ul style="list-style: none;">
+                        <li>触控板双指左右滑动翻页（类似 macOS Books）</li>
+                        <li>触摸屏左右滑动翻页</li>
+                        <li>左右边缘安全区域（80px），防止误触</li>
+                        <li>流畅的翻页动画效果</li>
+                        <li>键盘方向键也可翻页</li>
+                        <li>鼠标悬停时显示边缘安全区域</li>
+                    </ul>
+                </div>
+                
+                <p style="font-size: 14px; color: #999; margin-top: 20px;">
+                    💡 提示：在触控板上用两个手指左右滑动即可翻页
+                </p>
+            </div>
+        </div>
+        
+        <button id="next-button" class="nav-button">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+            </svg>
+        </button>
+    </div>
+    
+    <div id="status-message" class="status-message"></div>
+    
+    <!-- 必要的库 -->
+    <script src="lib/jszip.js"></script>
+    <script src="lib/localforage.js"></script>
+    <script src="lib/epub.js"></script>
+    
+    <!-- macOS Books 风格手势导航 -->
+    <script src="books-gesture-navigation.js"></script>
+    
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const prevButton = document.getElementById('prev-button');
+        const nextButton = document.getElementById('next-button');
+        const statusMessage = document.getElementById('status-message');
+        
+        let book = null;
+        let rendition = null;
+        let gestureNavigation = null;
+        
+        // 显示状态消息
+        function showStatus(message, duration = 3000) {
+            statusMessage.textContent = message;
+            statusMessage.classList.add('show');
+            setTimeout(() => {
+                statusMessage.classList.remove('show');
+            }, duration);
+        }
+        
+        // 文件选择处理
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !file.name.endsWith('.epub')) {
+                showStatus('❌ 请选择 EPUB 文件');
+                return;
+            }
+            
+            showStatus('📖 正在加载电子书...');
+            
+            // 清理之前的实例
+            if (gestureNavigation) {
+                gestureNavigation.destroy();
+                gestureNavigation = null;
+            }
+            
+            if (book) {
+                book.destroy();
+            }
+            
+            try {
+                // 创建新书实例
+                book = ePub();
+                await book.open(file);
+                
+                // 渲染书籍
+                rendition = book.renderTo('viewer', {
+                    width: '100%',
+                    height: '100%',
+                    flow: 'paginated',
+                    spread: 'none',
+                    manager: 'default'
+                });
+                
+                await rendition.display();
+                
+                // 设置样式
+                rendition.themes.default({
+                    'body': {
+                        'padding': '40px',
+                        'margin': '0',
+                        'background': 'white'
+                    },
+                    'p': {
+                        'font-family': '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
+                        'font-size': '18px',
+                        'line-height': '1.6',
+                        'margin': '1em 0',
+                        'color': '#333'
+                    },
+                    'h1, h2, h3': {
+                        'color': '#222',
+                        'margin-top': '1.5em'
+                    },
+                    'img': {
+                        'max-width': '100%',
+                        'height': 'auto'
+                    }
+                });
+                
+                // 显示导航按钮
+                prevButton.style.display = 'flex';
+                nextButton.style.display = 'flex';
+                
+                // 初始化 macOS Books 风格手势导航
+                gestureNavigation = new BooksGestureNavigation(rendition, {
+                    edgeSafeZoneWidth: 80,
+                    minSwipeDistance: 50,
+                    minSwipeVelocity: 0.3,
+                    enableTrackpad: true,
+                    enableTouch: true,
+                    showEdgeZones: true,
+                    animationDuration: 300
+                });
+                
+                showStatus('✅ 电子书加载成功！试试用触控板左右滑动翻页', 4000);
+                
+                console.log('📚 电子书加载完成');
+                console.log('📚 已启用 macOS Books 风格手势导航');
+                
+            } catch (error) {
+                console.error('❌ 加载电子书失败:', error);
+                showStatus('❌ 加载电子书失败：' + error.message);
+            }
+        });
+        
+        // 导航按钮事件
+        prevButton.addEventListener('click', () => {
+            if (rendition) {
+                rendition.prev();
+            }
+        });
+        
+        nextButton.addEventListener('click', () => {
+            if (rendition) {
+                rendition.next();
+            }
+        });
+        
+        // 键盘导航
+        document.addEventListener('keyup', (e) => {
+            if (!rendition) return;
+            
+            if (e.key === 'ArrowLeft') {
+                rendition.prev();
+            }
+            if (e.key === 'ArrowRight') {
+                rendition.next();
+            }
+        });
+        
+        console.log('📚 macOS Books 风格手势导航演示已就绪');
+        console.log('💡 请打开一个 EPUB 文件开始体验');
+    </script>
+</body>
+</html>

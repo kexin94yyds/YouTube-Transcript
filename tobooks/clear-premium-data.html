@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清零付费用户数据</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f0f0f0;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .warning { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧹 清零付费用户数据</h1>
+        <p>这个工具用于清除所有付费用户相关的数据，方便重新测试付费流程</p>
+        
+        <div class="status info">
+            <strong>⚠️ 注意：</strong><br>
+            此操作将清除所有本地存储的付费状态和数据库中的付费记录<br>
+            请确保在测试环境中使用
+        </div>
+        
+        <div>
+            <button class="btn" onclick="clearLocalStorage()">清除本地存储</button>
+            <button class="btn" onclick="clearDatabase()">清除数据库记录</button>
+            <button class="btn" onclick="clearAll()">清除所有数据</button>
+        </div>
+        
+        <div id="result" class="status" style="display: none;"></div>
+        
+        <div style="margin-top: 30px; text-align: left;">
+            <h3>📋 清除内容说明</h3>
+            <ul>
+                <li><strong>本地存储：</strong>isPremiumUser, whitelistUser, trialViewCount, userData 等</li>
+                <li><strong>数据库：</strong>premium_users 表中的所有记录</li>
+                <li><strong>会话：</strong>Supabase 登录会话</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- 引入 Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabaseClient.js"></script>
+    
+    <script>
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = `status ${type}`;
+            resultDiv.style.display = 'block';
+        }
+        
+        function clearLocalStorage() {
+            try {
+                // 清除所有相关的本地存储
+                const keysToRemove = [
+                    'isPremiumUser',
+                    'whitelistUser', 
+                    'trialViewCount',
+                    'userData',
+                    'userEmail',
+                    'userDisplayName',
+                    'userAvatar',
+                    'pendingPremiumSync'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                showResult('✅ 本地存储已清除！\n\n已清除的键：' + keysToRemove.join(', '), 'success');
+                
+            } catch (error) {
+                showResult(`❌ 清除本地存储失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function clearDatabase() {
+            try {
+                showResult('正在清除数据库记录...', 'info');
+                
+                const supabase = window.supabaseClient?.getClient();
+                if (!supabase) {
+                    throw new Error('Supabase 客户端未初始化');
+                }
+                
+                // 删除 premium_users 表中的所有记录
+                const { error } = await supabase
+                    .from('premium_users')
+                    .delete()
+                    .neq('id', 0); // 删除所有记录
+                
+                if (error) {
+                    throw error;
+                }
+                
+                showResult('✅ 数据库记录已清除！\n\n已删除 premium_users 表中的所有记录', 'success');
+                
+            } catch (error) {
+                showResult(`❌ 清除数据库失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function clearAll() {
+            try {
+                showResult('正在清除所有数据...', 'info');
+                
+                // 1. 清除本地存储
+                clearLocalStorage();
+                
+                // 2. 清除数据库
+                await clearDatabase();
+                
+                // 3. 退出登录
+                const supabase = window.supabaseClient?.getClient();
+                if (supabase) {
+                    await supabase.auth.signOut();
+                }
+                
+                showResult('✅ 所有数据已清除！\n\n包括：本地存储、数据库记录、登录会话', 'success');
+                
+                // 3秒后刷新页面
+                setTimeout(() => {
+                    if (confirm('数据已清除完成，是否刷新页面？')) {
+                        location.reload();
+                    }
+                }, 3000);
+                
+            } catch (error) {
+                showResult(`❌ 清除数据失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 页面加载时显示当前状态
+        document.addEventListener('DOMContentLoaded', () => {
+            const isPremium = localStorage.getItem('isPremiumUser') === 'true';
+            const isWhitelist = localStorage.getItem('whitelistUser') === 'true';
+            const trialCount = localStorage.getItem('trialViewCount') || '0';
+            
+            showResult(`当前状态：\n付费用户: ${isPremium ? '是' : '否'}\n白名单用户: ${isWhitelist ? '是' : '否'}\n试用次数: ${trialCount}`, 'info');
+        });
+    </script>
+</body>
+</html>
