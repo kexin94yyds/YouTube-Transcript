@@ -840,11 +840,16 @@ function ensurePinStyleElement() {
       /* 固定模式：为页面右侧预留侧边栏空间，视频自动填充剩余空间 */
       html.yt-transcript-pinned {
         --sidebar-width: var(--yt-transcript-sidebar-width, 300px);
+        /* 🔧 覆盖 YouTube 的 CSS 变量，移除边距 */
+        --ytd-margin-6x: 0px !important;
+        --ytd-margin-4x: 0px !important;
+        --ytd-margin-2x: 0px !important;
       }
       
       /* 页面右侧预留空间（直接作用于 body，最稳妥） */
       html.yt-transcript-pinned body {
         margin-right: var(--sidebar-width) !important;
+        margin-left: 0 !important;
         transition: margin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
@@ -860,13 +865,16 @@ function ensurePinStyleElement() {
         max-width: 100% !important;
         margin-left: 0 !important;
         padding-left: 0 !important;
+        --ytd-watch-flexy-panel-max-height: 100% !important;
       }
       
+      /* 🔧 关键：#columns 是主要的布局容器 */
       html.yt-transcript-pinned ytd-watch-flexy #columns {
         gap: 0 !important;
         column-gap: 0 !important;
         margin-left: 0 !important;
         padding-left: 0 !important;
+        max-width: 100% !important;
       }
       
       /* 移除右侧推荐/次要列，避免占位造成中间黑块 */
@@ -881,11 +889,15 @@ function ensurePinStyleElement() {
       html.yt-transcript-pinned ytd-watch-flexy #player-theater-container,
       html.yt-transcript-pinned ytd-watch-flexy #player-wide-container,
       html.yt-transcript-pinned ytd-watch-flexy #player-container,
-      html.yt-transcript-pinned ytd-watch-flexy #player {
+      html.yt-transcript-pinned ytd-watch-flexy #player,
+      html.yt-transcript-pinned ytd-watch-flexy #player-container-inner {
         margin-left: 0 !important;
         margin-right: 0 !important;
         padding-left: 0 !important;
+        padding-right: 0 !important;
         justify-content: flex-start !important;
+        width: 100% !important;
+        max-width: 100% !important;
       }
       
       /* 🔧 关键：控制主容器宽度，填充剩余空间，消除中间空隙 */
@@ -894,12 +906,23 @@ function ensurePinStyleElement() {
         width: calc(100vw - var(--sidebar-width)) !important;
         margin-left: 0 !important;
         padding-left: 0 !important;
+        padding-right: 0 !important;
       }
       
       /* 🔧 关键：移除 primary-inner 的左侧边距 */
       html.yt-transcript-pinned ytd-watch-flexy #primary-inner {
         margin-left: 0 !important;
         padding-left: 0 !important;
+        padding-right: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+      }
+      
+      /* 🔧 below 容器也需要处理 */
+      html.yt-transcript-pinned ytd-watch-flexy #below {
+        margin-left: 0 !important;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
         max-width: 100% !important;
       }
       
@@ -924,17 +947,20 @@ function ensurePinStyleElement() {
         width: 100% !important;
         margin-left: 0 !important;
         padding-left: 0 !important;
+        left: 0 !important;
       }
       
       html.yt-transcript-pinned video {
         max-width: 100% !important;
         width: 100% !important;
+        left: 0 !important;
       }
       
       /* 🔧 修复：隐藏左侧导航栏的占位空间 */
       html.yt-transcript-pinned ytd-mini-guide-renderer {
         width: 0 !important;
         min-width: 0 !important;
+        display: none !important;
       }
       
       html.yt-transcript-pinned #guide-inner-content {
@@ -943,6 +969,18 @@ function ensurePinStyleElement() {
       
       /* 🔧 移除页面左侧的固定边距 */
       html.yt-transcript-pinned ytd-page-manager {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+      }
+      
+      /* 🔧 修复：移除 content 区域的左侧边距 */
+      html.yt-transcript-pinned #content {
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+      }
+      
+      /* 🔧 修复：移除 masthead 下方的内容区域边距 */
+      html.yt-transcript-pinned #page-manager {
         margin-left: 0 !important;
         padding-left: 0 !important;
       }
