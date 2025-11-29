@@ -185,27 +185,24 @@ async function fetchTranscriptFromDOM() {
                     // 立即关闭原生面板，避免占位
                     closeNativeTranscript(transcriptPanel);
                     
-                    // 🔧 关键修复：字幕加载完成后，强制触发布局更新，让视频立即填充满屏
+                    // 🔧 字幕加载完成后，只有当用户之前选择了固定模式时才应用
                     setTimeout(() => {
-                        console.log('[YouTube转录 DOM] 字幕加载完成，重新确保固定状态');
-                        applyPinnedState();
-                        updatePinnedSpace();
+                        const shouldApplyPin = isPinned();
+                        console.log('[YouTube转录 DOM] 字幕加载完成，pin 状态:', shouldApplyPin ? '固定' : '浮动');
                         
-                        // 🚀 多次触发 resize 事件，确保 YouTube 完全响应
+                        if (shouldApplyPin) {
+                            applyPinnedState();
+                            updatePinnedSpace();
+                        }
+                        
+                        // 🚀 触发 resize 事件，确保 YouTube 完全响应
                         requestAnimationFrame(() => {
                             window.dispatchEvent(new Event('resize'));
-                            console.log('[YouTube转录 DOM] 触发第1次 resize');
                         });
                         
                         setTimeout(() => {
                             window.dispatchEvent(new Event('resize'));
-                            console.log('[YouTube转录 DOM] 触发第2次 resize');
                         }, 100);
-                        
-                        setTimeout(() => {
-                            window.dispatchEvent(new Event('resize'));
-                            console.log('[YouTube转录 DOM] 触发第3次 resize');
-                        }, 300);
                     }, 100);
                     
                     // 保存标记：字幕加载成功
@@ -751,12 +748,16 @@ function createSidebar() {
     sidebar.style.bottom = '0';
     sidebar.style.height = '100vh';
     
-    // 🔧 默认不固定，避免视频左侧出现空白
-    // 用户可以通过点击 pin 按钮手动固定
-    // 如果之前有保存的固定状态，则恢复；否则默认不固定
-    if (!localStorage.getItem('transcriptPinned')) {
+    // 🔧 记住用户的 pin 状态：
+    // - 首次使用时默认不固定
+    // - 之后会记住用户的选择
+    const savedPinnedState = localStorage.getItem('transcriptPinned');
+    if (savedPinnedState === null) {
+        // 首次使用，默认不固定
         try { localStorage.setItem('transcriptPinned', '0'); } catch (_) {}
     }
+    const shouldPin = localStorage.getItem('transcriptPinned') === '1';
+    console.log('[YouTube转录 DOM] 初始化时读取 pin 状态:', shouldPin ? '固定' : '浮动');
     
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     // 先让浏览器完成布局计算
@@ -929,16 +930,51 @@ function ensurePinStyleElement() {
         transition: margin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       }
       
-      /* 确保侧边栏始终可见 */
+      /* 确保侧边栏始终可见（非全屏时） */
       .transcript-sidebar {
         z-index: 2147483647 !important;
       }
       
-      /* 全屏模式下移除预留空间 */
+      /* 🔧 全屏模式下完全移除固定模式的所有影响 */
+      html.yt-transcript-pinned:fullscreen,
+      html.yt-transcript-pinned:-webkit-full-screen,
+      html.yt-transcript-pinned:-moz-full-screen {
+        --yt-transcript-sidebar-width: 0px !important;
+      }
+      
+      html.yt-transcript-pinned:fullscreen body,
+      html.yt-transcript-pinned:-webkit-full-screen body,
+      html.yt-transcript-pinned:-moz-full-screen body {
+        margin-right: 0 !important;
+      }
+      
       html.yt-transcript-pinned:fullscreen ytd-app,
       html.yt-transcript-pinned:-webkit-full-screen ytd-app,
       html.yt-transcript-pinned:-moz-full-screen ytd-app {
         margin-right: 0 !important;
+      }
+      
+      html.yt-transcript-pinned:fullscreen ytd-watch-flexy #primary,
+      html.yt-transcript-pinned:-webkit-full-screen ytd-watch-flexy #primary,
+      html.yt-transcript-pinned:-moz-full-screen ytd-watch-flexy #primary {
+        max-width: 100vw !important;
+        width: 100vw !important;
+      }
+      
+      /* 🔧 YouTube 播放器全屏时（ytp-fullscreen 类） */
+      html.yt-transcript-pinned .ytp-fullscreen ~ body,
+      html.yt-transcript-pinned ytd-watch-flexy[fullscreen] body {
+        margin-right: 0 !important;
+      }
+      
+      /* 🔧 全屏时隐藏侧边栏 */
+      html:fullscreen .transcript-sidebar,
+      html:-webkit-full-screen .transcript-sidebar,
+      html:-moz-full-screen .transcript-sidebar,
+      .ytp-fullscreen .transcript-sidebar {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
       }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -1576,17 +1612,17 @@ function hideSidebar() {
     // 清除之前的定时器
     clearAllCleanupTimers();
     
-    // 第一步：立即设置为非固定状态，更新 localStorage
-    try { localStorage.setItem('transcriptPinned', '0'); } catch (_) {}
+    // 🔧 不重置 pin 状态！保留用户的设置，下次打开时恢复
+    // try { localStorage.setItem('transcriptPinned', '0'); } catch (_) {}  // ❌ 移除
     
-    // 第二步：立即清除所有固定模式相关的样式
+    // 第一步：立即清除所有固定模式相关的样式（但不改变 localStorage 中的设置）
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
     
-    // 第三步：强制设置body margin为0（使用!important级别的内联样式）
+    // 第二步：强制设置body margin为0（使用!important级别的内联样式）
     document.body.style.setProperty('margin-right', '0', 'important');
     
-    // 第四步：强制 YouTube 播放器重新计算布局，让视频立即恢复满屏
+    // 第三步：强制 YouTube 播放器重新计算布局，让视频立即恢复满屏
     forceYouTubeLayoutRestore();
     
     // 第五步：启动侧边栏滑出动画
@@ -1700,15 +1736,10 @@ function showSidebar() {
     sidebar.style.bottom = '0';
     sidebar.style.height = '100vh';
     
-    // 🔧 默认不固定，避免视频左侧出现空白
-    // 恢复之前保存的固定状态（如果有），否则默认不固定
+    // 🔧 记住用户的 pin 设置：不在这里调用 setPinned，等动画开始后再应用
+    // 这样可以避免侧边栏还未显示就开始挤压视频
     const savedPinned = isPinned();
-    if (savedPinned) {
-        setPinned(true);
-    } else {
-        // 确保不固定状态
-        setPinned(false);
-    }
+    console.log('[YouTube转录 DOM] 读取保存的 pin 状态:', savedPinned ? '固定' : '浮动');
     
     // 设置初始隐藏状态（在屏幕右侧外）
     sidebar.style.transform = 'translateX(100%)';
@@ -1716,6 +1747,18 @@ function showSidebar() {
     
     const headerEl = document.querySelector('#transcript-sidebar .transcript-header');
     if (headerEl) headerEl.style.cursor = 'move';
+    
+    // 更新 pin 按钮的视觉状态
+    const pinBtn = document.getElementById('pin-sidebar');
+    if (pinBtn) {
+        if (savedPinned) {
+            pinBtn.classList.add('active');
+            pinBtn.title = '取消固定';
+        } else {
+            pinBtn.classList.remove('active');
+            pinBtn.title = '固定侧边栏';
+        }
+    }
     
     // 确保滚动容器处于可滚动状态
     const content = document.getElementById('transcript-content');
@@ -1736,12 +1779,16 @@ function showSidebar() {
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-            // 1. 应用固定状态，让页面布局开始调整
-            applyPinnedState();
+            // 1. 只有当用户之前选择了固定模式时，才应用固定状态
+            if (savedPinned) {
+                applyPinnedState();
+            }
             
-            // 🔧 新增：触发布局更新，让视频立即自适应侧边栏
+            // 🔧 触发布局更新
             requestAnimationFrame(() => {
-                updatePinnedSpace();
+                if (savedPinned) {
+                    updatePinnedSpace();
+                }
                 window.dispatchEvent(new Event('resize'));
                 
                 // 再次触发确保 YouTube 完全响应
@@ -1880,6 +1927,136 @@ window.addEventListener('resize', () => {
     // 固定模式下同步预留空间
     updatePinnedSpace();
 });
+
+// 🔧 全屏状态监听：进入全屏时隐藏侧边栏，退出时恢复
+let sidebarVisibleBeforeFullscreen = false;
+let wasFullscreen = false;
+
+function isYouTubeFullscreen() {
+    // 检查多种全屏状态
+    const isDocFullscreen = !!document.fullscreenElement || 
+                            !!document.webkitFullscreenElement || 
+                            !!document.mozFullScreenElement;
+    
+    // 检查 YouTube 的剧场模式和全屏类
+    const ytdApp = document.querySelector('ytd-app');
+    const watchFlexy = document.querySelector('ytd-watch-flexy');
+    
+    const isYTFullscreen = watchFlexy && (
+        watchFlexy.hasAttribute('fullscreen') ||
+        watchFlexy.hasAttribute('theater') && watchFlexy.hasAttribute('fullscreen')
+    );
+    
+    // 检查视频播放器是否全屏
+    const player = document.querySelector('#movie_player');
+    const isPlayerFullscreen = player && player.classList.contains('ytp-fullscreen');
+    
+    return isDocFullscreen || isYTFullscreen || isPlayerFullscreen;
+}
+
+function handleFullscreenChange() {
+    const isFullscreen = isYouTubeFullscreen();
+    
+    console.log('[YouTube转录 DOM] 全屏状态变化:', isFullscreen ? '进入全屏' : '退出全屏');
+    
+    const sidebar = document.getElementById('transcript-sidebar');
+    
+    if (isFullscreen && !wasFullscreen) {
+        // 刚进入全屏：隐藏侧边栏
+        if (sidebar && sidebar.style.display !== 'none') {
+            sidebarVisibleBeforeFullscreen = true;
+            console.log('[YouTube转录 DOM] 进入全屏，暂时隐藏侧边栏');
+            
+            // 暂时隐藏侧边栏（不移除，方便恢复）
+            sidebar.style.display = 'none';
+            sidebar.style.pointerEvents = 'none';
+            
+            // 移除固定模式的影响
+            document.documentElement.classList.remove('yt-transcript-pinned');
+            document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+            document.body.style.setProperty('margin-right', '0', 'important');
+        }
+    } else if (!isFullscreen && wasFullscreen) {
+        // 刚退出全屏：恢复侧边栏
+        if (sidebar && sidebarVisibleBeforeFullscreen) {
+            console.log('[YouTube转录 DOM] 退出全屏，恢复侧边栏');
+            
+            // 恢复侧边栏显示
+            sidebar.style.display = 'flex';
+            sidebar.style.pointerEvents = 'auto';
+            
+            // 恢复固定模式（如果之前是固定的）
+            applyPinnedState();
+            
+            // 清理标记
+            sidebarVisibleBeforeFullscreen = false;
+            
+            // 短暂延迟后触发布局更新
+            setTimeout(() => {
+                updatePinnedSpace();
+                window.dispatchEvent(new Event('resize'));
+            }, 100);
+        }
+    }
+    
+    wasFullscreen = isFullscreen;
+}
+
+// 监听文档级全屏变化
+document.addEventListener('fullscreenchange', handleFullscreenChange);
+document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+
+// 监听 YouTube 播放器的全屏状态（通过 class 变化）
+const fullscreenObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && 
+            (mutation.attributeName === 'class' || 
+             mutation.attributeName === 'fullscreen' ||
+             mutation.attributeName === 'theater')) {
+            handleFullscreenChange();
+            break;
+        }
+    }
+});
+
+// 延迟启动全屏监听（等待 YouTube 元素加载）
+setTimeout(() => {
+    const player = document.querySelector('#movie_player');
+    if (player) {
+        fullscreenObserver.observe(player, { attributes: true, attributeFilter: ['class'] });
+        console.log('[YouTube转录 DOM] 已启动全屏状态监听 (player)');
+    }
+    
+    const watchFlexy = document.querySelector('ytd-watch-flexy');
+    if (watchFlexy) {
+        fullscreenObserver.observe(watchFlexy, { 
+            attributes: true, 
+            attributeFilter: ['fullscreen', 'theater', 'class'] 
+        });
+        console.log('[YouTube转录 DOM] 已启动全屏状态监听 (watchFlexy)');
+    }
+}, 2000);
+
+// 🔧 备用方案：定期检查全屏状态（某些情况下事件可能不触发）
+let lastFullscreenCheck = false;
+setInterval(() => {
+    const isFullscreen = isYouTubeFullscreen();
+    if (isFullscreen !== lastFullscreenCheck) {
+        lastFullscreenCheck = isFullscreen;
+        handleFullscreenChange();
+    }
+}, 500);
+
+// 🔧 监听键盘事件（用户按 F 或 Esc 键时可能触发全屏）
+document.addEventListener('keydown', (e) => {
+    // F 键或 Escape 键可能触发全屏状态变化
+    if (e.key === 'f' || e.key === 'F' || e.key === 'Escape') {
+        // 延迟检查，给 YouTube 时间处理全屏
+        setTimeout(handleFullscreenChange, 100);
+        setTimeout(handleFullscreenChange, 300);
+    }
+}, true);
 
 // 🔧 智能刷新后自动打开：检查是否是刷新后需要自动打开侧边栏
 window.addEventListener('load', () => {
