@@ -1560,25 +1560,22 @@ function hideSidebar() {
     const sidebar = document.getElementById('transcript-sidebar');
     if (!sidebar) return;
     
-    console.log('[YouTube转录 DOM] 🚀 关闭侧边栏（简化版）');
+    console.log('[YouTube转录 DOM] 🚀 隐藏侧边栏（保留字幕数据）');
     
     // 清除之前的定时器
     clearAllCleanupTimers();
     
     // 第一步：立即清除所有固定模式相关的样式
+    _isPinned = false;
     document.documentElement.classList.remove('yt-transcript-pinned');
     document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
     
-    // 第二步：强制设置body margin为0（使用!important级别的内联样式）
+    // 第二步：强制设置body margin为0
     document.body.style.setProperty('margin-right', '0', 'important');
     
-    // 🔧 新增：触发布局更新，让视频立即恢复满屏
+    // 触发布局更新，让视频立即恢复满屏
     requestAnimationFrame(() => {
         window.dispatchEvent(new Event('resize'));
-        
-        setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
     });
     
     // 第三步：启动侧边栏滑出动画
@@ -1586,25 +1583,13 @@ function hideSidebar() {
     sidebar.style.transform = 'translateX(100%)';
     sidebar.style.opacity = '0';
     
-    // 第四步：动画完成后移除侧边栏
+    // 🔧 关键修改：动画完成后只隐藏，不移除侧边栏（保留字幕数据）
     setTimeout(() => {
-        try {
-            sidebar.remove();
-            console.log('[YouTube转录 DOM] ✅ 侧边栏已移除');
-        } catch(_) {
-            sidebar.style.display = 'none';
-        }
+        sidebar.style.display = 'none';
+        sidebar.style.transition = '';
+        document.body.style.removeProperty('margin-right');
+        console.log('[YouTube转录 DOM] ✅ 侧边栏已隐藏（字幕数据保留）');
     }, 450);
-    
-    // 第五步：清理完成后移除内联样式，让页面恢复正常
-    setTimeout(() => {
-        const currentSidebar = document.getElementById('transcript-sidebar');
-        if (!currentSidebar) {
-            // 只有确认没有新侧边栏时才清理
-            document.body.style.removeProperty('margin-right');
-            console.log('[YouTube转录 DOM] ✅ 视频已恢复正常大小');
-        }
-    }, 500);
 }
 
 function showSidebar() {
@@ -1654,12 +1639,21 @@ function showSidebar() {
         }
     }
     
+    // 🔧 确保 pin 按钮状态为非激活（浮动模式）
+    const pinBtn = document.getElementById('pin-sidebar');
+    if (pinBtn) {
+        pinBtn.classList.remove('active');
+        pinBtn.title = '固定侧边栏';
+    }
+    
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             // 🔧 默认浮动模式，不应用固定状态，直接让侧边栏滑入覆盖在视频上
-            // 确保移除固定类
+            // 确保移除固定类和相关样式
             document.documentElement.classList.remove('yt-transcript-pinned');
+            document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+            document.body.style.removeProperty('margin-right');
             
             // 让侧边栏滑入
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
@@ -1741,22 +1735,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const sidebar = document.getElementById('transcript-sidebar');
         
         if (sidebar) {
-            // 切换显示/隐藏
+            // 🔧 侧边栏已存在，只切换显示/隐藏，不重新加载字幕
             const isVisible = sidebar.style.display !== 'none';
             if (isVisible) {
                 hideSidebar();
                 console.log('[YouTube转录 DOM] 侧边栏已隐藏');
                 sendResponse({ visible: false });
             } else {
-                // 为保险起见，移除并重新初始化
-                hideSidebar();
-                init();
-                console.log('[YouTube转录 DOM] 侧边栏已重建并显示');
+                // 直接显示已存在的侧边栏，不重新加载
+                showSidebar();
+                console.log('[YouTube转录 DOM] 侧边栏已显示（使用缓存的字幕）');
                 sendResponse({ visible: true });
             }
         } else {
-            console.log('[YouTube转录 DOM] 侧边栏不存在，初始化...');
-            // 如果侧边栏不存在，创建它
+            // 🔧 侧边栏不存在，首次初始化并加载字幕
+            console.log('[YouTube转录 DOM] 侧边栏不存在，首次初始化...');
             init();
             sendResponse({ visible: true });
         }
