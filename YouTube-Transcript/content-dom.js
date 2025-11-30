@@ -52,6 +52,12 @@ function init() {
             return;
         }
         
+        // 🔧 首次加载时确保浮动模式，不挤压视频
+        _isPinned = false;
+        document.documentElement.classList.remove('yt-transcript-pinned');
+        document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+        document.body.style.removeProperty('margin-right');
+        
         console.log('[YouTube转录 DOM] 创建侧边栏...');
         createSidebar();
         
@@ -754,16 +760,17 @@ function createSidebar() {
     // 用户需要手动点击 pin 按钮才会固定并适配屏幕
     _isPinned = false;
     
+    // 🔧 关键：立即清除所有固定模式相关的样式，确保不挤压视频
+    document.documentElement.classList.remove('yt-transcript-pinned');
+    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+    document.body.style.removeProperty('margin-right');
+    
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     // 先让浏览器完成布局计算
     requestAnimationFrame(() => {
         // 再下一帧开始动画
         requestAnimationFrame(() => {
-            // 🔧 默认浮动模式：侧边栏覆盖在视频上，不挤压视频
-            // 确保移除固定类
-            document.documentElement.classList.remove('yt-transcript-pinned');
-            
-            // 让侧边栏滑入
+            // 让侧边栏滑入（浮动模式，覆盖在视频上）
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
             sidebar.style.transform = 'translateX(0)';
             sidebar.style.opacity = '1';
