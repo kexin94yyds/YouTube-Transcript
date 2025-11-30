@@ -1,31 +1,25 @@
 // YouTube转录侧边栏 - 使用DOM版本（无需网络请求）
 console.log('[YouTube转录 DOM] 插件加载开始...');
 
-// 🔧 关键：提前注入样式，确保原生转录面板从一开始就不占用布局空间
-// 这样首次加载字幕时不会挤压视频
+// 提前隐藏原生转录面板（不使用 display:none，避免阻断加载）
 (function ensureNativeTranscriptHiddenEarly() {
     try {
         if (document.getElementById('ext-hide-native-transcript-style')) return;
         const style = document.createElement('style');
         style.id = 'ext-hide-native-transcript-style';
         style.textContent = `
-          /* 🔧 关键：原生 transcript 面板完全不占位，避免挤压视频 */
-          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"] {
-            position: fixed !important;
-            left: -9999px !important;
-            top: 0 !important;
-            width: 0 !important;
-            max-width: 0 !important;
-            height: 0 !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-            visibility: hidden !important;
-            z-index: -1 !important;
-          }
+          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"],
           ytd-transcript-search-panel-renderer,
           ytd-transcript-renderer {
             opacity: 0 !important;
             pointer-events: none !important;
+            transition: none !important;
+          }
+          /* 一旦我们加上 transcript-hidden 类，彻底不占位 */
+          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"].transcript-hidden {
+            display: none !important;
+            width: 0 !important;
+            max-width: 0 !important;
           }
         `;
         (document.documentElement || document.head || document.body)?.appendChild(style);
@@ -57,12 +51,6 @@ function init() {
             setTimeout(init, 1000);
             return;
         }
-        
-        // 🔧 首次加载时确保浮动模式，不挤压视频
-        _isPinned = false;
-        document.documentElement.classList.remove('yt-transcript-pinned');
-        document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
-        document.body.style.removeProperty('margin-right');
         
         console.log('[YouTube转录 DOM] 创建侧边栏...');
         createSidebar();
@@ -652,6 +640,13 @@ function createSidebar() {
     // 清除所有之前的清理定时器，防止与新侧边栏冲突
     clearAllCleanupTimers();
     
+    // 🔧 关键：首次加载时确保是浮动模式，不挤压视频
+    // 清除所有可能残留的固定模式样式
+    _isPinned = false;
+    document.documentElement.classList.remove('yt-transcript-pinned');
+    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+    document.body.style.setProperty('margin-right', '0', 'important');
+    
     const existingSidebar = document.getElementById('transcript-sidebar');
     if (existingSidebar) {
         existingSidebar.remove();
@@ -766,19 +761,15 @@ function createSidebar() {
     // 用户需要手动点击 pin 按钮才会固定并适配屏幕
     _isPinned = false;
     
-    // 🔧 关键：立即清除所有固定模式相关的样式，确保不挤压视频
-    document.documentElement.classList.remove('yt-transcript-pinned');
-    document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
-    document.body.style.removeProperty('margin-right');
-    
     // 使用 requestAnimationFrame 实现丝滑的入场动画
     // 先让浏览器完成布局计算
     requestAnimationFrame(() => {
         // 再下一帧开始动画
         requestAnimationFrame(() => {
-            // 🔧 默认浮动模式：侧边栏覆盖在视频上，不挤压视频
-            // 确保移除固定类
+            // 🔧 关键：确保浮动模式，清除所有固定模式相关样式，不挤压视频
             document.documentElement.classList.remove('yt-transcript-pinned');
+            document.documentElement.style.removeProperty('--yt-transcript-sidebar-width');
+            document.body.style.setProperty('margin-right', '0', 'important');
             
             // 让侧边栏滑入
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
@@ -787,9 +778,10 @@ function createSidebar() {
             
             console.log('[YouTube转录 DOM] 侧边栏丝滑入场动画已触发（浮动模式）');
             
-            // 动画完成后清理transition，避免影响后续操作
+            // 动画完成后清理transition和margin-right
             setTimeout(() => {
                 sidebar.style.transition = '';
+                document.body.style.removeProperty('margin-right');
             }, 450);
         });
     });
