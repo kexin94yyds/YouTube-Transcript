@@ -656,14 +656,25 @@ function createSidebar() {
         <div class="header-top">
             <h3>Transcript</h3>
             <div class="header-controls">
-                <button id="pin-sidebar" class="control-btn" title="固定侧边栏">📌</button>
-                <button id="copy-transcript" class="control-btn" title="Copy transcript">📋</button>
-                <button id="copy-url" class="control-btn" title="Copy URL">🔗</button>
-                <button id="download-epub" class="control-btn" title="下载 EPUB 电子书">📚</button>
-                <button id="toggle-sidebar" class="toggle-btn" title="Close">×</button>
+                <button id="pin-sidebar" class="control-btn" title="固定侧边栏">
+                    <svg viewBox="0 0 24 24"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6l1 1 1-1v-6h5v-2l-2-2z"/></svg>
+                </button>
+                <button id="copy-transcript" class="control-btn" title="复制全部字幕">
+                    <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                </button>
+                <button id="copy-url" class="control-btn" title="复制视频链接">
+                    <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+                </button>
+                <button id="download-epub" class="control-btn" title="下载 EPUB 电子书">
+                    <svg viewBox="0 0 24 24"><path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg>
+                </button>
+                <div class="header-divider"></div>
+                <button id="toggle-sidebar" class="toggle-btn close-btn" title="关闭">
+                    <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
             </div>
         </div>
-        <input type="text" id="search-box" class="search-box" placeholder="Search in video">
+        <input type="text" id="search-box" class="search-box" placeholder="搜索字幕...">
     `;
     
     const content = document.createElement('div');
@@ -1203,10 +1214,11 @@ async function copyTranscript() {
         await writeToClipboard(text);
         const btn = document.getElementById('copy-transcript');
         if (btn) {
-            const old = btn.textContent;
-            btn.textContent = '✓';
-            setTimeout(() => btn.textContent = old, 1000);
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="#4caf50"/></svg>';
+            setTimeout(() => btn.innerHTML = originalHtml, 1500);
         }
+        showCopyToast('已复制全部字幕');
     } catch (err) {
         console.error('[YouTube转录 DOM] 复制失败:', err);
     }
@@ -1219,10 +1231,11 @@ async function copyPageUrl() {
         await writeToClipboard(url);
         const btn = document.getElementById('copy-url');
         if (btn) {
-            const old = btn.textContent;
-            btn.textContent = '✓';
-            setTimeout(() => btn.textContent = old, 1000);
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="#4caf50"/></svg>';
+            setTimeout(() => btn.innerHTML = originalHtml, 1500);
         }
+        showCopyToast('已复制视频链接');
     } catch (err) {
         console.error('[YouTube轉錄 DOM] 複制頁面網址失敗:', err);
     }
