@@ -1,25 +1,31 @@
 // YouTube转录侧边栏 - 使用DOM版本（无需网络请求）
 console.log('[YouTube转录 DOM] 插件加载开始...');
 
-// 提前隐藏原生转录面板（不使用 display:none，避免阻断加载）
+// 🔧 关键：提前注入样式，确保原生转录面板从一开始就不占用布局空间
+// 这样首次加载字幕时不会挤压视频
 (function ensureNativeTranscriptHiddenEarly() {
     try {
         if (document.getElementById('ext-hide-native-transcript-style')) return;
         const style = document.createElement('style');
         style.id = 'ext-hide-native-transcript-style';
         style.textContent = `
-          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"],
+          /* 🔧 关键：原生 transcript 面板完全不占位，避免挤压视频 */
+          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"] {
+            position: fixed !important;
+            left: -9999px !important;
+            top: 0 !important;
+            width: 0 !important;
+            max-width: 0 !important;
+            height: 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            visibility: hidden !important;
+            z-index: -1 !important;
+          }
           ytd-transcript-search-panel-renderer,
           ytd-transcript-renderer {
             opacity: 0 !important;
             pointer-events: none !important;
-            transition: none !important;
-          }
-          /* 一旦我们加上 transcript-hidden 类，彻底不占位 */
-          ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"].transcript-hidden {
-            display: none !important;
-            width: 0 !important;
-            max-width: 0 !important;
           }
         `;
         (document.documentElement || document.head || document.body)?.appendChild(style);
@@ -770,7 +776,11 @@ function createSidebar() {
     requestAnimationFrame(() => {
         // 再下一帧开始动画
         requestAnimationFrame(() => {
-            // 让侧边栏滑入（浮动模式，覆盖在视频上）
+            // 🔧 默认浮动模式：侧边栏覆盖在视频上，不挤压视频
+            // 确保移除固定类
+            document.documentElement.classList.remove('yt-transcript-pinned');
+            
+            // 让侧边栏滑入
             sidebar.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease';
             sidebar.style.transform = 'translateX(0)';
             sidebar.style.opacity = '1';
